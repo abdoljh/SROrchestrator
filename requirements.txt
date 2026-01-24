@@ -1,1 +1,20 @@
-streamlit
+# Core Dependencies
+streamlit>=1.28.0
+pandas>=2.0.0
+matplotlib>=3.7.0
+
+# Research API Libraries
+arxiv
+biopython
+semanticscholar
+beautifulsoup4
+google-search-results
+serpapi
+
+# Additional utilities
+requests>=2.31.0
+python-dotenv>=1.0.0
+Pillow>=10.0.0
+
+# Optional but recommended
+plotly>=5.17.0
