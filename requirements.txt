@@ -1,7 +1,0 @@
-arxiv 
-pandas
-biopython
-semanticscholar 
-beautifulsoup4
-google-search-results 
-serpapi
