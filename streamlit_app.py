@@ -206,7 +206,7 @@ def main():
         if api_keys.get('email'):
             available_engines.extend(["arXiv", "PubMed", "Crossref", "OpenAlex"])
         
-        st.info(f"**Available Engines:** {len(set(available_engines))}/7")
+        st.info(f"**Available Engines:** {len(set(available_engines))}/8")
         
         # Warning for missing critical keys
         if not any([key_status['s2'] == "✅", key_status['serp'] == "✅", key_status['core'] == "✅", key_status['scopus'] == "✅", api_keys.get('email')]):
