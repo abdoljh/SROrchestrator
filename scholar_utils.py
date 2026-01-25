@@ -2,7 +2,8 @@ import time
 import csv
 import re
 from datetime import datetime
-from serpapi import GoogleSearch
+#from serpapi import GoogleSearch
+from serpapi.google_search import GoogleSearch
 
 def format_scholar_authors(authors_list):
     if not authors_list:
