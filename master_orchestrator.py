@@ -1,19 +1,17 @@
 # SROrch (Scholarly Research Orchestrator) - Enhanced Version
 # master_orchestrator_enhanced.py
 
-# master_orchestrator.py
 import os
 import csv
 import re
 import shutil
-import json
+import json  # ✨ NEW: For configuration export
 import concurrent.futures
-import requests
 from datetime import datetime
 from dotenv import load_dotenv
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional  # ✨ NEW: Type hints for better code quality
 
-# Import your utility modules
+# Import your tools
 import s2_utils
 import arxiv_utils
 import pubmed_utils
@@ -26,10 +24,7 @@ import scopus_utils
 load_dotenv()
 
 class ResearchOrchestrator:
-    def __init__(self, config: Optional[Dict] = None):
-        """
-        Initializes the Orchestrator with API keys and custom research weights.
-        """
+    def __init__(self, config: Optional[Dict] = None):  # ✨ NEW: Optional configuration parameter
         self.api_keys = {
             's2': os.getenv('S2_API_KEY'),
             'serp': os.getenv('SERP_API_KEY'),
@@ -38,45 +33,294 @@ class ResearchOrchestrator:
             'email': os.getenv('USER_EMAIL', 'researcher@example.com')
         }
         self.output_dir = ""
-        
-        # Comprehensive Configuration
+
+        # ✨ NEW: Configurable settings with defaults
         self.config = config or {
-            'abstract_limit': 10,
-            'high_consensus_threshold': 3,
-            'citation_weight': 1.5,
+            'abstract_limit': 5,
+            'high_consensus_threshold': 4,
+            'citation_weight': 1.0,
             'source_weight': 100,
             'enable_alerts': True,
-            'export_formats': ['csv', 'json', 'txt']
+            'enable_visualization': True,
+            'export_formats': ['csv', 'json', 'bibtex'],  # ✨ NEW: Multiple export formats
+            'recency_boost': True,  # ✨ NEW: Boost recent papers
+            'recency_years': 5,  # Papers from last 5 years get boost
+            'recency_multiplier': 1.2
         }
-        
+
+        # ✨ NEW: Search session metadata
         self.session_metadata = {
-            'query': "",
             'start_time': None,
             'end_time': None,
+            'query': None,
+            'total_api_calls': 0,
+            'failed_engines': [],
             'successful_engines': []
         }
 
-    def create_output_directory(self, query: str):
-        """Creates a timestamped directory for session outputs."""
+    def create_output_directory(self, query):
         clean_q = re.sub(r'[^a-zA-Z0-9]', '_', query).strip('_')
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        self.output_dir = f"search_{clean_q}_{timestamp}"
+        self.output_dir = f"SROrch_{clean_q}_{timestamp}"
         if not os.path.exists(self.output_dir):
             os.makedirs(self.output_dir)
+        print(f"📂 Created session directory: {self.output_dir}")
         return self.output_dir
 
-    def run_search(self, query: str, limit_per_engine: int = 25):
+    # ✨ NEW: Enhanced deduplication with configurable scoring
+    def deduplicate_and_score(self, all_papers):
+        unique_papers = {}
+        current_year = datetime.now().year
+
+        for paper in all_papers:
+            doi = str(paper.get('doi') or 'N/A').lower().strip()
+            title = paper.get('title', '').lower().strip()
+            clean_title = re.sub(r'[^a-zA-Z0-9]', '', title)
+            key = doi if (doi != 'n/a' and len(doi) > 5) else clean_title
+
+            try:
+                cites_raw = paper.get('citations', 0)
+                cites = int(cites_raw) if str(cites_raw).isdigit() else 0
+            except:
+                cites = 0
+
+            if key in unique_papers:
+                unique_papers[key]['source_count'] += 1
+                if cites > unique_papers[key].get('citations_int', 0):
+                    unique_papers[key]['citations_int'] = cites
+                    unique_papers[key]['citations'] = cites
+
+                # Automatic Duplicate Alert (configurable threshold)
+                if (self.config['enable_alerts'] and
+                    unique_papers[key]['source_count'] == self.config['high_consensus_threshold']):
+                    print(f"🚨 ALERT: High-Consensus Discovery! Found in {self.config['high_consensus_threshold']}+ engines: \"{paper['title'][:60]}...\"")
+            else:
+                paper['source_count'] = 1
+                paper['citations_int'] = cites
+                unique_papers[key] = paper
+
+        # ✨ NEW: Enhanced relevance scoring with configurable weights
+        for p in unique_papers.values():
+            base_score = (p['source_count'] * self.config['source_weight']) + \
+                        (p['citations_int'] * self.config['citation_weight'])
+
+            # ✨ NEW: Recency boost for recent papers
+            if self.config['recency_boost']:
+                try:
+                    year_val = str(p.get('year', ''))
+                    if year_val.isdigit() and len(year_val) == 4:
+                        paper_year = int(year_val)
+                        if 1900 <= paper_year <= 2100:  # Valid year range
+                            if paper_year >= (current_year - self.config['recency_years']):
+                                base_score *= self.config['recency_multiplier']
+                                p['recency_boosted'] = True  # ✨ NEW: Flag for boosted papers
+                except:
+                    pass
+
+            p['relevance_score'] = int(base_score)
+
+        return sorted(unique_papers.values(), key=lambda x: x['relevance_score'], reverse=True)
+
+    def fetch_abstracts_for_top_papers(self, top_papers, limit=None):
         """
-        Executes parallel searches across 8 engines.
+        ENHANCED DEEP LOOK:
+        1. Queries S2 by DOI with explicit field requests.
+        2. Fallback to Title Search with mapping to Abstract.
+        3. Enriches the paper object for both CSV and Summary.
         """
-        self.session_metadata['query'] = query
+        # ✨ NEW: Use configured limit if not specified
+        limit = limit or self.config['abstract_limit']
+
+        print(f"\n[AI] Performing 'Deep Look' for Top {limit} papers...")
+        abstract_summaries = []
+
+        import requests
+        headers = {"x-api-key": self.api_keys['s2']} if self.api_keys['s2'] else {}
+
+        for i, paper in enumerate(top_papers[:limit]):
+            abstract = "Abstract not available."
+            doi = str(paper.get('doi', '')).strip()
+            title = paper.get('title')
+
+            # Step 1: Deep Look by DOI (Explicit Fields)
+            if doi and doi.lower() != 'n/a':
+                try:
+                    # ✨ ENHANCED: Request more fields including keywords and references
+                    url = f"https://api.semanticscholar.org/graph/v1/paper/DOI:{doi}?fields=abstract,url,title,tldr,fieldsOfStudy"
+                    r = requests.get(url, headers=headers, timeout=12)
+                    if r.status_code == 200:
+                        data = r.json()
+                        abstract = data.get('abstract') or abstract
+                        if data.get('url'): paper['url'] = data.get('url')
+                        if data.get('tldr'): paper['tldr'] = data.get('tldr', {}).get('text', '')  # ✨ NEW: AI-generated summary
+                        if data.get('fieldsOfStudy'): paper['keywords'] = ', '.join(data.get('fieldsOfStudy', []))  # ✨ NEW: Keywords
+                except: pass
+
+            # Step 2: Deep Look by Title Search Fallback
+            if (not abstract or abstract == "Abstract not available.") and title:
+                try:
+                    search_url = f"https://api.semanticscholar.org/graph/v1/paper/search?query={title}&limit=1&fields=abstract,url,doi,tldr,fieldsOfStudy"
+                    r = requests.get(search_url, headers=headers, timeout=12)
+                    if r.status_code == 200:
+                        results_data = r.json().get('data', [])
+                        if results_data:
+                            abstract = results_data[0].get('abstract') or abstract
+                            if results_data[0].get('url'): paper['url'] = results_data[0].get('url')
+                            if results_data[0].get('doi'): paper['doi'] = results_data[0].get('doi')
+                            if results_data[0].get('tldr'): paper['tldr'] = results_data[0].get('tldr', {}).get('text', '')
+                            if results_data[0].get('fieldsOfStudy'): paper['keywords'] = ', '.join(results_data[0].get('fieldsOfStudy', []))
+                except: pass
+
+            # Save the enriched data back to the paper object
+            paper['abstract'] = abstract
+
+            # ✨ ENHANCED: Include TLDR and keywords in summary
+            summary_block = (
+                f"RANK [{i+1}]\n"
+                f"TITLE:    {paper['title']}\n"
+                f"AUTHORS:  {paper['ieee_authors']}\n"
+                f"YEAR:     {paper.get('year', 'N/A')}\n"
+                f"VENUE:    {paper.get('venue', 'N/A')}\n"
+                f"LINK:     {paper.get('url', 'No link found')}\n"
+                f"DOI:      {paper.get('doi', 'N/A')}\n"
+            )
+
+            # ✨ NEW: Add TLDR if available
+            if paper.get('tldr'):
+                summary_block += f"TLDR:     {paper['tldr']}\n"
+
+            # ✨ NEW: Add keywords if available
+            if paper.get('keywords'):
+                summary_block += f"KEYWORDS: {paper['keywords']}\n"
+
+            summary_block += f"ABSTRACT: {paper['abstract']}\n"
+            summary_block += f"{'-'*60}\n"
+
+            abstract_summaries.append(summary_block)
+
+        return abstract_summaries
+
+    def generate_research_statistics(self, results):
+        """Power Feature: Research Statistics & Visualization."""
+        if not self.config['enable_visualization']:
+            print("\n📊 Visualization disabled in config.")
+            return
+
+        print("\n📊 Generating Research Statistics...")
+
+        try:
+            import matplotlib.pyplot as plt
+            from collections import Counter
+
+            # 1. Basic Stats
+            total_papers = len(results)
+            valid_cites = [int(p.get('citations_int', 0)) for p in results]
+            avg_citations = sum(valid_cites) / total_papers if total_papers > 0 else 0
+
+            # ✨ NEW: Additional statistics
+            max_citations = max(valid_cites) if valid_cites else 0
+            median_citations = sorted(valid_cites)[len(valid_cites)//2] if valid_cites else 0
+            high_consensus_papers = sum(1 for p in results if p.get('source_count', 0) >= self.config['high_consensus_threshold'])
+
+            # Count recent papers with proper year validation
+            recent_papers = 0
+            for p in results:
+                try:
+                    year_val = str(p.get('year', ''))
+                    if year_val.isdigit() and len(year_val) == 4:
+                        year_int = int(year_val)
+                        if year_int >= (datetime.now().year - self.config['recency_years']):
+                            recent_papers += 1
+                except:
+                    pass
+
+            # 2. Source Consensus Distribution
+            source_counts = Counter(p.get('source_count', 1) for p in results)
+
+            # 3. Year Distribution (Filtering only numeric years)
+            years = []
+            for p in results:
+                year_val = str(p.get('year', ''))
+                # Only include if it's a valid 4-digit year
+                if year_val.isdigit() and len(year_val) == 4:
+                    try:
+                        year_int = int(year_val)
+                        if 1900 <= year_int <= 2100:  # Reasonable year range
+                            years.append(year_val)
+                    except:
+                        pass
+            year_counts = Counter(years)
+            sorted_years = sorted(year_counts.keys())
+            counts = [year_counts[y] for y in sorted_years]
+
+            # ✨ NEW: Create multi-panel visualization
+            if sorted_years:
+                fig, axes = plt.subplots(1, 2, figsize=(16, 6))
+
+                # Panel 1: Year distribution
+                axes[0].bar(sorted_years, counts, color='#2acaea', edgecolor='black')
+                axes[0].set_xlabel('Publication Year', fontsize=12)
+                axes[0].set_ylabel('Number of Papers', fontsize=12)
+                axes[0].set_title(f'Publication Trend: {total_papers} Papers', fontsize=14, fontweight='bold')
+                axes[0].tick_params(axis='x', rotation=45)
+                axes[0].grid(axis='y', linestyle='--', alpha=0.7)
+
+                # ✨ NEW: Panel 2: Source consensus distribution
+                consensus_data = sorted(source_counts.items())
+                consensus_labels = [f"{k} source{'s' if k > 1 else ''}" for k, v in consensus_data]
+                consensus_values = [v for k, v in consensus_data]
+
+                axes[1].barh(consensus_labels, consensus_values, color='#FF6B6B', edgecolor='black')
+                axes[1].set_xlabel('Number of Papers', fontsize=12)
+                axes[1].set_ylabel('Source Consensus', fontsize=12)
+                axes[1].set_title('Cross-Database Coverage', fontsize=14, fontweight='bold')
+                axes[1].grid(axis='x', linestyle='--', alpha=0.7)
+
+                plt.tight_layout()
+                stats_plot_path = os.path.join(self.output_dir, "research_analytics.png")
+                plt.savefig(stats_plot_path, dpi=300)
+                print(f"📈 Analytics dashboard saved as: research_analytics.png")
+
+                # ✨ NEW: Display the graph in console/notebook
+                try:
+                    plt.show()
+                except:
+                    # If display fails (headless environment), just continue
+                    pass
+
+                plt.close()
+
+            # ✨ NEW: Enhanced console summary
+            print("\n" + "="*50)
+            print(f"       RESEARCH METRICS SUMMARY")
+            print("="*50)
+            print(f"Total Unique Papers Discovered: {total_papers}")
+            print(f"High-Consensus Papers (≥{self.config['high_consensus_threshold']} sources): {high_consensus_papers}")
+            print(f"Recent Papers (last {self.config['recency_years']} years): {recent_papers}")
+            print("-" * 50)
+            print(f"CITATION METRICS:")
+            print(f"  - Average:  {avg_citations:.2f}")
+            print(f"  - Median:   {median_citations}")
+            print(f"  - Maximum:  {max_citations}")
+            print("-" * 50)
+            print(f"CONSENSUS DISTRIBUTION:")
+            for count, freq in sorted(source_counts.items(), reverse=True):
+                percentage = (freq / total_papers) * 100
+                print(f"  - Found in {count} engine(s): {freq} papers ({percentage:.1f}%)")
+            print("="*50 + "\n")
+
+        except Exception as e:
+            print(f"⚠️ Statistics generation failed: {e}")
+
+    def run_search(self, query, limit_per_engine=15):
+        # ✨ NEW: Track session metadata
         self.session_metadata['start_time'] = datetime.now()
+        self.session_metadata['query'] = query
+
         self.create_output_directory(query)
-        all_papers = []
+        print(f"\n[Master] Orchestrating search for: '{query}'...")
 
-        print(f"\n[Master] Starting federated search for: '{query}'...")
-
-        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
             tasks = {
                 executor.submit(s2_utils.fetch_and_process_papers, self.api_keys['s2'], query, csv_limit=limit_per_engine): "Semantic Scholar",
                 executor.submit(arxiv_utils.fetch_and_process_arxiv, query, max_limit=limit_per_engine): "arXiv",
@@ -85,122 +329,190 @@ class ResearchOrchestrator:
                 executor.submit(doi_utils.fetch_and_process_doi, query, max_limit=limit_per_engine): "Crossref/DOI",
                 executor.submit(openalex_utils.fetch_and_process_openalex, query, max_limit=limit_per_engine): "OpenAlex",
                 executor.submit(core_utils.fetch_and_process_core, self.api_keys['core'], query, max_limit=limit_per_engine): "CORE",
-                executor.submit(scopus_utils.fetch_and_process_scopus, self.api_keys['scopus'], query, max_limit=limit_per_engine): "Scopus"
+                executor.submit(core_utils.fetch_and_process_scopus, self.api_keys['scopus'], query, max_limit=limit_per_engine): "SCOPUS"
+
             }
 
+            combined_results = []
             for future in concurrent.futures.as_completed(tasks):
                 engine_name = tasks[future]
                 try:
                     data = future.result()
                     if data:
-                        all_papers.extend(data)
-                        self.session_metadata['successful_engines'].append(engine_name)
-                        print(f"✅ {engine_name}: Found {len(data)} results")
+                        combined_results.extend(data)
+                        self.session_metadata['successful_engines'].append(engine_name)  # ✨ NEW: Track success
+                        self.session_metadata['total_api_calls'] += 1
                 except Exception as e:
-                    print(f"❌ {engine_name} Failed: {e}")
+                    print(f"  ⚠️  [Error Resilience] {engine_name} failed: {e}. Skipping...")
+                    self.session_metadata['failed_engines'].append(engine_name)  # ✨ NEW: Track failures
 
-        results = self.deduplicate_and_score(all_papers)
-        self.session_metadata['end_time'] = datetime.now()
-        return results
+        final_list = self.deduplicate_and_score(combined_results)
 
-    def deduplicate_and_score(self, all_papers: List[Dict]):
-        """
-        Deduplicates by Title/DOI and applies the SROrch Ranking Algorithm.
-        """
-        unique_papers = {}
-        for paper in all_papers:
-            # Normalize title for matching
-            title_key = re.sub(r'[^a-z0-9]', '', paper['title'].lower())
-            doi_key = paper.get('doi', '').lower().strip() if paper.get('doi') else None
-            
-            match_key = doi_key if (doi_key and doi_key != 'n/a') else title_key
-            
-            if match_key not in unique_papers:
-                paper['source_count'] = 1
-                paper['found_in'] = [paper.get('venue', 'Unknown')]
-                unique_papers[match_key] = paper
-            else:
-                unique_papers[match_key]['source_count'] += 1
-                if paper.get('venue') not in unique_papers[match_key]['found_in']:
-                    unique_papers[match_key]['found_in'].append(paper.get('venue'))
-
-        # Final Scoring
-        scored_list = []
-        for p in unique_papers.values():
-            cites = int(p.get('citations')) if str(p.get('citations')).isdigit() else 0
-            p['relevance_score'] = (p['source_count'] * self.config['source_weight']) + (cites * self.config['citation_weight'])
-            scored_list.append(p)
-
-            # Consensus Alert logic
-            if self.config['enable_alerts'] and p['source_count'] >= self.config['high_consensus_threshold']:
-                print(f"🚨 HIGH CONSENSUS: '{p['title'][:60]}...' found in {p['source_count']} sources.")
-
-        return sorted(scored_list, key=lambda x: x['relevance_score'], reverse=True)
-
-    def fetch_abstracts_for_top_papers(self, results: List[Dict]):
-        """
-        DEEP LOOK: Explicitly fetches abstracts for the top ranked papers.
-        """
-        print(f"\n[AI] Performing 'Deep Look' for top {self.config['abstract_limit']} papers...")
-        summaries = []
-        for i, paper in enumerate(results[:self.config['abstract_limit']]):
-            abstract = "Abstract not available via public API."
-            doi = paper.get('doi')
-            
-            if doi and doi != 'N/A':
-                try:
-                    # Semantic Scholar lookup for abstract
-                    s2_url = f"https://api.semanticscholar.org/graph/v1/paper/DOI:{doi}?fields=abstract"
-                    resp = requests.get(s2_url, timeout=5)
-                    if resp.status_code == 200:
-                        abstract = resp.json().get('abstract') or abstract
+        for file in os.listdir('.'):
+            if file.endswith(".csv") and not file.startswith("MASTER_"):
+                try: shutil.move(file, os.path.join(self.output_dir, file))
                 except: pass
-            
-            paper['abstract'] = abstract
-            summary_block = (
-                f"RANK [{i+1}] | SCORE: {paper['relevance_score']}\n"
-                f"TITLE: {paper['title']}\n"
-                f"AUTHORS: {paper['ieee_authors']}\n"
-                f"ABSTRACT: {abstract[:500]}...\n"
-                f"LINK: {paper.get('url')}\n"
-                f"{'-'*40}"
-            )
-            summaries.append(summary_block)
-        return summaries
 
-    def save_master_csv(self, results: List[Dict], query: str):
-        """Generates all output files and wraps them in a ZIP archive."""
-        # 1. Enrich top results
-        abstract_blocks = self.fetch_abstracts_for_top_papers(results)
+        # ✨ NEW: Track end time
+        self.session_metadata['end_time'] = datetime.now()
 
-        # 2. Export CSV
-        csv_path = os.path.join(self.output_dir, "MASTER_REPORT_FINAL.csv")
-        headers = ['relevance_score', 'source_count', 'ieee_authors', 'title', 'venue', 'year', 'citations', 'doi', 'url', 'abstract']
-        with open(csv_path, 'w', newline='', encoding='utf-8') as f:
-            writer = csv.DictWriter(f, fieldnames=headers)
+        return final_list
+
+    # ✨ NEW: Export to BibTeX format
+    def export_bibtex(self, results, filename="references.bib"):
+        """Export results to BibTeX format for reference managers."""
+        bibtex_path = os.path.join(self.output_dir, filename)
+
+        with open(bibtex_path, 'w', encoding='utf-8') as f:
+            for i, paper in enumerate(results, 1):
+                # Generate citation key
+                first_author = paper.get('ieee_authors', 'Unknown').split(',')[0].strip().replace(' ', '')
+                year = paper.get('year', 'n.d.')
+                cite_key = f"{first_author}{year}_{i}"
+
+                # Determine entry type
+                venue = paper.get('venue', '').lower()
+                if 'conference' in venue or 'proceedings' in venue:
+                    entry_type = 'inproceedings'
+                elif 'arxiv' in venue:
+                    entry_type = 'misc'
+                else:
+                    entry_type = 'article'
+
+                f.write(f"@{entry_type}{{{cite_key},\n")
+                f.write(f"  title = {{{paper.get('title', 'No title')}}},\n")
+                f.write(f"  author = {{{paper.get('ieee_authors', 'Unknown')}}},\n")
+                f.write(f"  year = {{{year}}},\n")
+
+                if paper.get('venue'):
+                    journal_key = 'booktitle' if entry_type == 'inproceedings' else 'journal'
+                    f.write(f"  {journal_key} = {{{paper['venue']}}},\n")
+
+                if paper.get('doi') and paper['doi'] != 'N/A':
+                    f.write(f"  doi = {{{paper['doi']}}},\n")
+
+                if paper.get('url'):
+                    f.write(f"  url = {{{paper['url']}}},\n")
+
+                if paper.get('abstract'):
+                    # Escape special characters in abstract
+                    abstract = paper['abstract'].replace('{', '\\{').replace('}', '\\}')
+                    f.write(f"  abstract = {{{abstract}}},\n")
+
+                f.write(f"  note = {{Citations: {paper.get('citations', 0)}, Sources: {paper.get('source_count', 1)}}}\n")
+                f.write("}\n\n")
+
+        print(f"📚 BibTeX export saved as: {filename}")
+
+    # ✨ NEW: Export to JSON format
+    def export_json(self, results, filename="research_data.json"):
+        """Export results to structured JSON format."""
+        json_path = os.path.join(self.output_dir, filename)
+
+        export_data = {
+            'metadata': {
+                'query': self.session_metadata['query'],
+                'search_date': self.session_metadata['start_time'].isoformat() if self.session_metadata['start_time'] else None,
+                'total_papers': len(results),
+                'successful_engines': self.session_metadata['successful_engines'],
+                'failed_engines': self.session_metadata['failed_engines'],
+                'execution_time_seconds': (self.session_metadata['end_time'] - self.session_metadata['start_time']).total_seconds() if self.session_metadata['end_time'] and self.session_metadata['start_time'] else None
+            },
+            'papers': results
+        }
+
+        with open(json_path, 'w', encoding='utf-8') as f:
+            json.dump(export_data, f, indent=2, ensure_ascii=False)
+
+        print(f"📄 JSON export saved as: {filename}")
+
+    # ✨ NEW: Generate session report
+    def generate_session_report(self):
+        """Generate a comprehensive session report with metadata."""
+        report_path = os.path.join(self.output_dir, "SESSION_REPORT.txt")
+
+        with open(report_path, 'w', encoding='utf-8') as f:
+            f.write("="*60 + "\n")
+            f.write("          SROrch SESSION REPORT\n")
+            f.write("="*60 + "\n\n")
+
+            f.write(f"Query: {self.session_metadata['query']}\n")
+            f.write(f"Start Time: {self.session_metadata['start_time']}\n")
+            f.write(f"End Time: {self.session_metadata['end_time']}\n")
+
+            if self.session_metadata['start_time'] and self.session_metadata['end_time']:
+                duration = self.session_metadata['end_time'] - self.session_metadata['start_time']
+                f.write(f"Duration: {duration.total_seconds():.2f} seconds\n")
+
+            f.write(f"\nTotal API Calls: {self.session_metadata['total_api_calls']}\n")
+            f.write(f"Successful Engines: {', '.join(self.session_metadata['successful_engines'])}\n")
+
+            if self.session_metadata['failed_engines']:
+                f.write(f"Failed Engines: {', '.join(self.session_metadata['failed_engines'])}\n")
+
+            f.write("\n" + "="*60 + "\n")
+            f.write("CONFIGURATION USED:\n")
+            f.write("="*60 + "\n")
+            for key, value in self.config.items():
+                f.write(f"{key}: {value}\n")
+
+            f.write("\n" + "="*60 + "\n")
+
+        print(f"📋 Session report saved as: SESSION_REPORT.txt")
+
+    def save_master_csv(self, results, query):
+        """Final execution step: Enriches data, saves CSV/Summary, and generates statistics."""
+        # 1. Trigger Deep Look
+        top_abstract_blocks = self.fetch_abstracts_for_top_papers(results)
+
+        # 2. Save CSV (Keys include 'abstract' and new fields)
+        csv_filename = os.path.join(self.output_dir, "MASTER_REPORT_FINAL.csv")
+        keys = ['relevance_score', 'source_count', 'ieee_authors', 'title', 'venue', 'year',
+                'citations', 'doi', 'url', 'abstract', 'keywords', 'tldr', 'recency_boosted']  # ✨ NEW: Additional fields
+
+        with open(csv_filename, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.DictWriter(f, fieldnames=keys)
             writer.writeheader()
             for row in results:
-                writer.writerow({k: row.get(k, 'N/A') for k in headers})
+                writer.writerow({k: row.get(k, '') for k in keys})
 
-        # 3. Export JSON
+        # 3. Save Executive Summary
+        summary_path = os.path.join(self.output_dir, "EXECUTIVE_SUMMARY.txt")
+        with open(summary_path, 'w', encoding='utf-8') as f:
+            f.write(f"=== SROrch EXECUTIVE RESEARCH SUMMARY ===\n")
+            f.write(f"QUERY: {query}\n")
+            f.write(f"DATE:  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write("="*42 + "\n\n")
+            f.writelines(top_abstract_blocks)
+
+        # 4. Visualization & Console Output
+        self.generate_research_statistics(results)
+
+        # ✨ NEW: Export to multiple formats based on config
         if 'json' in self.config['export_formats']:
-            json_path = os.path.join(self.output_dir, "research_data.json")
-            with open(json_path, 'w') as f:
-                json.dump(results, f, indent=4)
+            self.export_json(results)
 
-        # 4. Save Session Report
-        report_path = os.path.join(self.output_dir, "SESSION_REPORT.txt")
-        with open(report_path, 'w') as f:
-            f.write("SROrch SESSION REPORT\n" + "="*30 + "\n")
-            f.write(f"Query: {query}\n")
-            f.write(f"Successful Engines: {', '.join(self.session_metadata['successful_engines'])}\n")
-            f.write(f"Duration: {self.session_metadata['end_time'] - self.session_metadata['start_time']}\n")
-            f.write(f"Total Unique Papers: {len(results)}\n")
+        if 'bibtex' in self.config['export_formats']:
+            self.export_bibtex(results)
 
-        # 5. Archive
-        shutil.make_archive(self.output_dir, 'zip', self.output_dir)
-        print(f"\n✅ All reports generated in {self.output_dir}")
-        print(f"📦 Archive ready: {self.output_dir}.zip")
+        # ✨ NEW: Generate session report
+        self.generate_session_report()
+
+        # 5. Updated Console TOP 5 with LINKS
+        print(f"\n--- TOP 5 DISCOVERIES ---")
+        for i, p in enumerate(results[:5], 1):
+            boost_indicator = " 🔥" if p.get('recency_boosted') else ""  # ✨ NEW: Visual indicator
+            print(f"[{i}] Score: {p['relevance_score']} | Sources: {p['source_count']}{boost_indicator}")
+            print(f"    {p['ieee_authors']}, \"{p['title']}\"")
+            print(f"    🔗 Link: {p.get('url', 'N/A')}")
+            if p.get('tldr'):  # ✨ NEW: Show TLDR in console
+                print(f"    💡 TLDR: {p['tldr'][:100]}...")
+
+        # 6. Archive
+        try:
+            shutil.make_archive(self.output_dir, 'zip', self.output_dir)
+            print(f"\n📦 Portable Archive Created: {self.output_dir}.zip")
+        except: pass
 
 # --- Execute ---
 if __name__ == "__main__":
