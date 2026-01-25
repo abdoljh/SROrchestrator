@@ -76,6 +76,7 @@ def load_api_keys():
             's2': st.secrets.get("S2_API_KEY", ""),
             'serp': st.secrets.get("SERP_API_KEY", ""),
             'core': st.secrets.get("CORE_API_KEY", ""),
+            'scopus': st.secrets.get("SCOPUS_API_KEY", ""),
             'email': st.secrets.get("USER_EMAIL", "researcher@example.com")
         }
     except Exception as e:
@@ -84,6 +85,7 @@ def load_api_keys():
             's2': "",
             'serp': "",
             'core': "",
+            'scopus': "",
             'email': "researcher@example.com"
         }
 
@@ -93,6 +95,7 @@ def check_api_keys(api_keys):
     status['s2'] = "✅" if api_keys.get('s2') else "❌"
     status['serp'] = "✅" if api_keys.get('serp') else "❌"
     status['core'] = "✅" if api_keys.get('core') else "❌"
+    status['scopus'] = "✅" if api_keys.get('scopus') else "❌"
     return status
 
 def display_results_preview(results, limit=5):
@@ -187,6 +190,7 @@ def main():
         st.write(f"Semantic Scholar: {key_status['s2']}")
         st.write(f"SERP API (Google Scholar): {key_status['serp']}")
         st.write(f"CORE API: {key_status['core']}")
+        st.write(f"SCOPUS API: {key_status['scopus']}")
         st.write(f"Email (arXiv/PubMed/etc): {'✅' if api_keys.get('email') and api_keys['email'] != 'researcher@example.com' else '⚠️'}")
         
         # Show available engines count
@@ -197,13 +201,15 @@ def main():
             available_engines.append("Google Scholar")
         if key_status['core'] == "✅":
             available_engines.append("CORE")
+        if key_status['scopus'] == "✅":
+            available_engines.append("SCOPUS")
         if api_keys.get('email'):
             available_engines.extend(["arXiv", "PubMed", "Crossref", "OpenAlex"])
         
         st.info(f"**Available Engines:** {len(set(available_engines))}/7")
         
         # Warning for missing critical keys
-        if not any([key_status['s2'] == "✅", key_status['serp'] == "✅", key_status['core'] == "✅", api_keys.get('email')]):
+        if not any([key_status['s2'] == "✅", key_status['serp'] == "✅", key_status['core'] == "✅", key_status['scopus'] == "✅", api_keys.get('email')]):
             st.error("⚠️ No API keys configured! Application may not work properly.")
         elif len(set(available_engines)) < 4:
             st.warning(f"⚠️ Only {len(set(available_engines))} engines available. Configure more API keys for better coverage.")
@@ -480,7 +486,8 @@ def main():
         - **Crossref/DOI** - Digital Object Identifier resolution
         - **OpenAlex** - Open catalog of scholarly papers
         - **CORE** - Open access research aggregator
-        
+        - **SCOPUS** - Open access research aggregator
+
         #### ✨ Key Features
         - **Multi-source consensus detection** - Identifies papers found across multiple databases
         - **Intelligent relevance scoring** - Combines citations, source count, and recency
@@ -516,6 +523,7 @@ def main():
         - **S2_API_KEY** - Semantic Scholar API key (recommended)
         - **SERP_API_KEY** - SerpAPI key for Google Scholar (optional)
         - **CORE_API_KEY** - CORE API key (optional)
+        - **SCOPUS_API_KEY** - SCOPUS API key (optional)
         - **USER_EMAIL** - Your email for API requests (required for some services)
         
         #### 📝 Output Files
