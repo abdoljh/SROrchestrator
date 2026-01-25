@@ -5,3 +5,4 @@ semanticscholar
 beautifulsoup4
 google-search-results 
 serpapi
+dotenv
