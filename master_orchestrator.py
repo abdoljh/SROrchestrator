@@ -329,8 +329,7 @@ class ResearchOrchestrator:
                 executor.submit(doi_utils.fetch_and_process_doi, query, max_limit=limit_per_engine): "Crossref/DOI",
                 executor.submit(openalex_utils.fetch_and_process_openalex, query, max_limit=limit_per_engine): "OpenAlex",
                 executor.submit(core_utils.fetch_and_process_core, self.api_keys['core'], query, max_limit=limit_per_engine): "CORE",
-                executor.submit(scopus_utils.fetch_and_process_scopus, self.api_keys['scopus'], query, max_limit=limit_per_engine): "SCOPUS"
-
+                executor.submit(scopus_utils.fetch_and_process_scopus, self.api_keys['scopus'], query, max_limit=limit_per_engine, save_csv=False): "SCOPUS"
             }
 
             combined_results = []
@@ -538,4 +537,4 @@ if __name__ == "__main__":
     print(f"\n--- ENHANCED SUMMARY ---")
     print(f"Search completed in {(orchestrator.session_metadata['end_time'] - orchestrator.session_metadata['start_time']).total_seconds():.2f} seconds")
     print(f"Engines used: {len(orchestrator.session_metadata['successful_engines'])}/{orchestrator.session_metadata['total_api_calls']}")
-    print(f"Output directory: {orchestrator.output_dir}")
+    print(f"Output directory: {self.output_dir}")
