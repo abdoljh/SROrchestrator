@@ -167,7 +167,7 @@ def create_download_buttons(output_dir):
                 data=f,
                 file_name=os.path.basename(zip_path),
                 mime='application/zip',
-                use_container_width=True
+                width="stretch"
             )
 
 def main():
@@ -185,8 +185,28 @@ def main():
         key_status = check_api_keys(api_keys)
         
         st.write(f"Semantic Scholar: {key_status['s2']}")
-        st.write(f"SERP API: {key_status['serp']}")
+        st.write(f"SERP API (Google Scholar): {key_status['serp']}")
         st.write(f"CORE API: {key_status['core']}")
+        st.write(f"Email (arXiv/PubMed/etc): {'✅' if api_keys.get('email') and api_keys['email'] != 'researcher@example.com' else '⚠️'}")
+        
+        # Show available engines count
+        available_engines = []
+        if key_status['s2'] == "✅":
+            available_engines.append("Semantic Scholar")
+        if key_status['serp'] == "✅":
+            available_engines.append("Google Scholar")
+        if key_status['core'] == "✅":
+            available_engines.append("CORE")
+        if api_keys.get('email'):
+            available_engines.extend(["arXiv", "PubMed", "Crossref", "OpenAlex"])
+        
+        st.info(f"**Available Engines:** {len(set(available_engines))}/7")
+        
+        # Warning for missing critical keys
+        if not any([key_status['s2'] == "✅", key_status['serp'] == "✅", key_status['core'] == "✅", api_keys.get('email')]):
+            st.error("⚠️ No API keys configured! Application may not work properly.")
+        elif len(set(available_engines)) < 4:
+            st.warning(f"⚠️ Only {len(set(available_engines))} engines available. Configure more API keys for better coverage.")
         
         st.divider()
         
@@ -306,10 +326,10 @@ def main():
         col1, col2, col3 = st.columns([2, 1, 1])
         
         with col1:
-            search_button = st.button("🚀 Start Search", type="primary", use_container_width=True)
+            search_button = st.button("🚀 Start Search", type="primary", width="stretch")
         
         with col2:
-            if st.button("🔄 Clear Cache", use_container_width=True):
+            if st.button("🔄 Clear Cache", width="stretch"):
                 st.cache_data.clear()
                 st.success("Cache cleared!")
         
@@ -417,7 +437,7 @@ def main():
             chart_path = os.path.join(output_dir, "research_analytics.png")
             if os.path.exists(chart_path):
                 st.subheader("📈 Research Analytics")
-                st.image(chart_path, use_container_width=True)
+                st.image(chart_path, width="stretch")
                 st.divider()
             
             # Results preview
