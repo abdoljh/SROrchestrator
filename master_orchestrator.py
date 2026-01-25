@@ -19,6 +19,7 @@ import scholar_utils
 import doi_utils
 import openalex_utils
 import core_utils
+import scopus_utils
 
 load_dotenv()
 
@@ -28,6 +29,7 @@ class ResearchOrchestrator:
             's2': os.getenv('S2_API_KEY'),
             'serp': os.getenv('SERP_API_KEY'),
             'core': os.getenv('CORE_API_KEY'),
+            'scopus': os.getenv('SCOPUS_API_KEY'),
             'email': os.getenv('USER_EMAIL', 'researcher@example.com')
         }
         self.output_dir = ""
@@ -326,7 +328,9 @@ class ResearchOrchestrator:
                 executor.submit(scholar_utils.fetch_and_process_scholar, self.api_keys['serp'], query, max_limit=limit_per_engine): "Google Scholar",
                 executor.submit(doi_utils.fetch_and_process_doi, query, max_limit=limit_per_engine): "Crossref/DOI",
                 executor.submit(openalex_utils.fetch_and_process_openalex, query, max_limit=limit_per_engine): "OpenAlex",
-                executor.submit(core_utils.fetch_and_process_core, self.api_keys['core'], query, max_limit=limit_per_engine): "CORE"
+                executor.submit(core_utils.fetch_and_process_core, self.api_keys['core'], query, max_limit=limit_per_engine): "CORE",
+                executor.submit(core_utils.fetch_and_process_core, self.api_keys['scopus'], query, max_limit=limit_per_engine): "SCOPUS"
+
             }
 
             combined_results = []
