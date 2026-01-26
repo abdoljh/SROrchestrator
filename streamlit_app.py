@@ -77,11 +77,27 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+def initialize_session_state():
+    """Initialize session state with persistent storage keys"""
+    # Initialize keys if they don't exist
+    if 'user_s2_key' not in st.session_state:
+        st.session_state['user_s2_key'] = ''
+    if 'user_serp_key' not in st.session_state:
+        st.session_state['user_serp_key'] = ''
+    if 'user_core_key' not in st.session_state:
+        st.session_state['user_core_key'] = ''
+    if 'user_scopus_key' not in st.session_state:
+        st.session_state['user_scopus_key'] = ''
+    if 'user_email' not in st.session_state:
+        st.session_state['user_email'] = 'researcher@example.com'
+    if 'keys_initialized' not in st.session_state:
+        st.session_state['keys_initialized'] = True
+
 def load_api_keys():
     """
     Load API keys with flexibility:
     1. Try to load from Streamlit secrets (admin mode)
-    2. Fall back to user-provided keys via session state
+    2. Fall back to user-provided keys via session state (persisted across sessions)
     """
     # Check if admin mode is enabled in secrets
     admin_mode = False
@@ -104,7 +120,7 @@ def load_api_keys():
             st.error(f"Error loading admin secrets: {e}")
             admin_mode = False
     
-    # User mode: Get keys from session state (populated by sidebar inputs)
+    # User mode: Get keys from session state (persisted)
     return {
         's2': st.session_state.get('user_s2_key', ''),
         'serp': st.session_state.get('user_serp_key', ''),
@@ -116,6 +132,7 @@ def load_api_keys():
 def render_api_key_input_section():
     """
     Render the API key input section in sidebar for user-provided keys
+    Keys are automatically saved to session state (persisted)
     """
     st.sidebar.header("🔑 API Configuration")
     
@@ -131,9 +148,9 @@ def render_api_key_input_section():
         return
     
     # User mode: Allow key input
-    st.sidebar.info("💡 **Tip:** Enter your API keys below or use free engines (arXiv, PubMed, Crossref, OpenAlex)")
+    st.sidebar.info("💡 **Tip:** Keys are saved automatically in your browser")
     
-    with st.sidebar.expander("📝 Enter Your API Keys (Optional)", expanded=False):
+    with st.sidebar.expander("📝 Your API Keys", expanded=False):
         st.markdown("""
         **Optional Premium Engines:**
         - Semantic Scholar (recommended)
@@ -142,61 +159,101 @@ def render_api_key_input_section():
         - SCOPUS
         
         **Always Available (No Key Needed):**
-        - arXiv
-        - PubMed
-        - Crossref/DOI
-        - OpenAlex
+        - arXiv, PubMed, Crossref/DOI, OpenAlex
+        
+        🔒 *Keys are stored locally in your browser*
         """)
         
-        # API Key Inputs
+        # Track if any changes were made
+        changed = False
+        
+        # API Key Inputs - directly update session state
         s2_key = st.text_input(
             "Semantic Scholar API Key",
             value=st.session_state.get('user_s2_key', ''),
             type="password",
             help="Get free key at: https://www.semanticscholar.org/product/api",
-            key="s2_input"
+            key="s2_input_widget"
         )
+        if s2_key != st.session_state.get('user_s2_key', ''):
+            st.session_state['user_s2_key'] = s2_key
+            changed = True
         
         serp_key = st.text_input(
             "SERP API Key (Google Scholar)",
             value=st.session_state.get('user_serp_key', ''),
             type="password",
             help="Get key at: https://serpapi.com/",
-            key="serp_input"
+            key="serp_input_widget"
         )
+        if serp_key != st.session_state.get('user_serp_key', ''):
+            st.session_state['user_serp_key'] = serp_key
+            changed = True
         
         core_key = st.text_input(
             "CORE API Key",
             value=st.session_state.get('user_core_key', ''),
             type="password",
             help="Get key at: https://core.ac.uk/services/api",
-            key="core_input"
+            key="core_input_widget"
         )
+        if core_key != st.session_state.get('user_core_key', ''):
+            st.session_state['user_core_key'] = core_key
+            changed = True
         
         scopus_key = st.text_input(
             "SCOPUS API Key",
             value=st.session_state.get('user_scopus_key', ''),
             type="password",
             help="Get key at: https://dev.elsevier.com/",
-            key="scopus_input"
+            key="scopus_input_widget"
         )
+        if scopus_key != st.session_state.get('user_scopus_key', ''):
+            st.session_state['user_scopus_key'] = scopus_key
+            changed = True
         
         email = st.text_input(
             "Your Email",
             value=st.session_state.get('user_email', 'researcher@example.com'),
             help="Used for API requests to arXiv, PubMed, etc.",
-            key="email_input"
+            key="email_input_widget"
         )
-        
-        # Update session state
-        if st.button("💾 Save API Keys", key="save_keys"):
-            st.session_state['user_s2_key'] = s2_key
-            st.session_state['user_serp_key'] = serp_key
-            st.session_state['user_core_key'] = core_key
-            st.session_state['user_scopus_key'] = scopus_key
+        if email != st.session_state.get('user_email', ''):
             st.session_state['user_email'] = email
-            st.success("✅ API keys saved for this session!")
-            st.rerun()
+            changed = True
+        
+        # Show save confirmation
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("💾 Save Keys", key="save_keys", use_container_width=True):
+                st.success("✅ Keys saved!")
+                st.rerun()
+        
+        with col2:
+            if st.button("🗑️ Clear All", key="clear_keys", use_container_width=True):
+                st.session_state['user_s2_key'] = ''
+                st.session_state['user_serp_key'] = ''
+                st.session_state['user_core_key'] = ''
+                st.session_state['user_scopus_key'] = ''
+                st.session_state['user_email'] = 'researcher@example.com'
+                st.success("🗑️ Keys cleared!")
+                st.rerun()
+        
+        # Show which keys are currently saved
+        saved_keys = []
+        if st.session_state.get('user_s2_key'):
+            saved_keys.append("Semantic Scholar")
+        if st.session_state.get('user_serp_key'):
+            saved_keys.append("Google Scholar")
+        if st.session_state.get('user_core_key'):
+            saved_keys.append("CORE")
+        if st.session_state.get('user_scopus_key'):
+            saved_keys.append("SCOPUS")
+        
+        if saved_keys:
+            st.success(f"🔑 Saved: {', '.join(saved_keys)}")
+        else:
+            st.info("ℹ️ No API keys saved yet")
 
 def check_api_keys(api_keys):
     """Check which API keys are configured"""
@@ -303,6 +360,9 @@ def create_download_buttons(output_dir):
             )
 
 def main():
+    # Initialize session state for persistent API key storage
+    initialize_session_state()
+    
     # Header
     st.markdown('<p class="main-header">🔬 SROrch - Scholarly Research Orchestrator</p>', unsafe_allow_html=True)
     st.markdown('<p class="sub-header">Multi-Engine Academic Literature Search & Analysis</p>', unsafe_allow_html=True)

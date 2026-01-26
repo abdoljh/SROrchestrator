@@ -321,16 +321,53 @@ class ResearchOrchestrator:
         print(f"\n[Master] Orchestrating search for: '{query}'...")
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
-            tasks = {
-                executor.submit(s2_utils.fetch_and_process_papers, self.api_keys['s2'], query, csv_limit=limit_per_engine): "Semantic Scholar",
-                executor.submit(arxiv_utils.fetch_and_process_arxiv, query, max_limit=limit_per_engine): "arXiv",
-                executor.submit(pubmed_utils.fetch_and_process_pubmed, query, max_limit=limit_per_engine): "PubMed",
-                executor.submit(scholar_utils.fetch_and_process_scholar, self.api_keys['serp'], query, max_limit=limit_per_engine): "Google Scholar",
-                executor.submit(doi_utils.fetch_and_process_doi, query, max_limit=limit_per_engine): "Crossref/DOI",
-                executor.submit(openalex_utils.fetch_and_process_openalex, query, max_limit=limit_per_engine): "OpenAlex",
-                executor.submit(core_utils.fetch_and_process_core, self.api_keys['core'], query, max_limit=limit_per_engine): "CORE",
-                executor.submit(scopus_utils.fetch_and_process_scopus, self.api_keys['scopus'], query, max_limit=limit_per_engine, save_csv=False): "SCOPUS"
-            }
+            # ✨ FIXED: Only create tasks for engines with valid API keys
+            tasks = {}
+            
+            # Semantic Scholar - requires API key
+            if self.api_keys.get('s2'):
+                tasks[executor.submit(s2_utils.fetch_and_process_papers, self.api_keys['s2'], query, csv_limit=limit_per_engine)] = "Semantic Scholar"
+                print(f"  ✓ Semantic Scholar enabled (API key provided)")
+            else:
+                print(f"  ✗ Semantic Scholar skipped (no API key)")
+                self.session_metadata['failed_engines'].append("Semantic Scholar")
+            
+            # Google Scholar - requires SERP API key
+            if self.api_keys.get('serp'):
+                tasks[executor.submit(scholar_utils.fetch_and_process_scholar, self.api_keys['serp'], query, max_limit=limit_per_engine)] = "Google Scholar"
+                print(f"  ✓ Google Scholar enabled (API key provided)")
+            else:
+                print(f"  ✗ Google Scholar skipped (no API key)")
+                self.session_metadata['failed_engines'].append("Google Scholar")
+            
+            # CORE - requires API key
+            if self.api_keys.get('core'):
+                tasks[executor.submit(core_utils.fetch_and_process_core, self.api_keys['core'], query, max_limit=limit_per_engine)] = "CORE"
+                print(f"  ✓ CORE enabled (API key provided)")
+            else:
+                print(f"  ✗ CORE skipped (no API key)")
+                self.session_metadata['failed_engines'].append("CORE")
+            
+            # SCOPUS - requires API key
+            if self.api_keys.get('scopus'):
+                tasks[executor.submit(scopus_utils.fetch_and_process_scopus, self.api_keys['scopus'], query, max_limit=limit_per_engine, save_csv=False)] = "SCOPUS"
+                print(f"  ✓ SCOPUS enabled (API key provided)")
+            else:
+                print(f"  ✗ SCOPUS skipped (no API key)")
+                self.session_metadata['failed_engines'].append("SCOPUS")
+            
+            # Free engines - always available
+            tasks[executor.submit(arxiv_utils.fetch_and_process_arxiv, query, max_limit=limit_per_engine)] = "arXiv"
+            print(f"  ✓ arXiv enabled (free)")
+            
+            tasks[executor.submit(pubmed_utils.fetch_and_process_pubmed, query, max_limit=limit_per_engine)] = "PubMed"
+            print(f"  ✓ PubMed enabled (free)")
+            
+            tasks[executor.submit(doi_utils.fetch_and_process_doi, query, max_limit=limit_per_engine)] = "Crossref/DOI"
+            print(f"  ✓ Crossref/DOI enabled (free)")
+            
+            tasks[executor.submit(openalex_utils.fetch_and_process_openalex, query, max_limit=limit_per_engine)] = "OpenAlex"
+            print(f"  ✓ OpenAlex enabled (free)")
 
             combined_results = []
             for future in concurrent.futures.as_completed(tasks):
@@ -339,11 +376,18 @@ class ResearchOrchestrator:
                     data = future.result()
                     if data:
                         combined_results.extend(data)
-                        self.session_metadata['successful_engines'].append(engine_name)  # ✨ NEW: Track success
+                        # Only add to successful if not already marked as failed (missing key)
+                        if engine_name not in self.session_metadata['failed_engines']:
+                            self.session_metadata['successful_engines'].append(engine_name)
+                        else:
+                            # Remove from failed list if it succeeded despite being marked
+                            self.session_metadata['failed_engines'].remove(engine_name)
                         self.session_metadata['total_api_calls'] += 1
                 except Exception as e:
                     print(f"  ⚠️  [Error Resilience] {engine_name} failed: {e}. Skipping...")
-                    self.session_metadata['failed_engines'].append(engine_name)  # ✨ NEW: Track failures
+                    # Only add to failed if not already there
+                    if engine_name not in self.session_metadata['failed_engines']:
+                        self.session_metadata['failed_engines'].append(engine_name)
 
         final_list = self.deduplicate_and_score(combined_results)
 
