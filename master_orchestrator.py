@@ -30,7 +30,20 @@ class ResearchOrchestrator:
             'serp': os.getenv('SERP_API_KEY'),
             'core': os.getenv('CORE_API_KEY'),
             'scopus': os.getenv('SCOPUS_API_KEY'),
-            'email': os.getenv('USER_EMAIL', 'researcher@example.com')
+            'email': os.getenv('USER_EMAIL', 'researcher@example.com'),
+            
+            # 📌 PLACEHOLDER: Add new API keys here
+            # Example for IEEE Xplore:
+            # 'ieee': os.getenv('IEEE_API_KEY'),
+            
+            # Example for Web of Science:
+            # 'wos': os.getenv('WOS_API_KEY'),
+            
+            # Example for Springer:
+            # 'springer': os.getenv('SPRINGER_API_KEY'),
+            
+            # Example for Nature:
+            # 'nature': os.getenv('NATURE_API_KEY'),
         }
         self.output_dir = ""
 
@@ -328,6 +341,10 @@ class ResearchOrchestrator:
             def is_valid_key(key):
                 return key and isinstance(key, str) and len(key.strip()) > 5
             
+            # =============================================================================
+            # PREMIUM ENGINES (Require API Keys)
+            # =============================================================================
+            
             # Semantic Scholar - requires API key
             if is_valid_key(self.api_keys.get('s2')):
                 tasks[executor.submit(s2_utils.fetch_and_process_papers, self.api_keys['s2'], query, csv_limit=limit_per_engine)] = "Semantic Scholar"
@@ -360,7 +377,47 @@ class ResearchOrchestrator:
                 print(f"  ✗ SCOPUS skipped (no valid API key)")
                 self.session_metadata['failed_engines'].append("SCOPUS (no API key)")
             
-            # Free engines - always available
+            # 📌 PLACEHOLDER: Add new premium engines here
+            # =============================================================================
+            # Template for adding a new premium engine:
+            # =============================================================================
+            # 1. Import the utility module at the top:
+            #    import new_engine_utils
+            #
+            # 2. Add the engine with validation:
+            #    if is_valid_key(self.api_keys.get('new_engine')):
+            #        tasks[executor.submit(
+            #            new_engine_utils.fetch_and_process_new_engine,
+            #            self.api_keys['new_engine'],
+            #            query,
+            #            max_limit=limit_per_engine
+            #        )] = "New Engine Name"
+            #        print(f"  ✓ New Engine Name enabled (API key provided)")
+            #    else:
+            #        print(f"  ✗ New Engine Name skipped (no valid API key)")
+            #        self.session_metadata['failed_engines'].append("New Engine Name (no API key)")
+            # =============================================================================
+            
+            # Example: IEEE Xplore (commented out - uncomment when implemented)
+            # if is_valid_key(self.api_keys.get('ieee')):
+            #     tasks[executor.submit(ieee_utils.fetch_and_process_ieee, self.api_keys['ieee'], query, max_limit=limit_per_engine)] = "IEEE Xplore"
+            #     print(f"  ✓ IEEE Xplore enabled (API key provided)")
+            # else:
+            #     print(f"  ✗ IEEE Xplore skipped (no valid API key)")
+            #     self.session_metadata['failed_engines'].append("IEEE Xplore (no API key)")
+            
+            # Example: Web of Science (commented out - uncomment when implemented)
+            # if is_valid_key(self.api_keys.get('wos')):
+            #     tasks[executor.submit(wos_utils.fetch_and_process_wos, self.api_keys['wos'], query, max_limit=limit_per_engine)] = "Web of Science"
+            #     print(f"  ✓ Web of Science enabled (API key provided)")
+            # else:
+            #     print(f"  ✗ Web of Science skipped (no valid API key)")
+            #     self.session_metadata['failed_engines'].append("Web of Science (no API key)")
+            
+            # =============================================================================
+            # FREE ENGINES (Always Available - No API Keys Required)
+            # =============================================================================
+            
             tasks[executor.submit(arxiv_utils.fetch_and_process_arxiv, query, max_limit=limit_per_engine)] = "arXiv"
             print(f"  ✓ arXiv enabled (free)")
             
@@ -372,7 +429,35 @@ class ResearchOrchestrator:
             
             tasks[executor.submit(openalex_utils.fetch_and_process_openalex, query, max_limit=limit_per_engine)] = "OpenAlex"
             print(f"  ✓ OpenAlex enabled (free)")
+            
+            # 📌 PLACEHOLDER: Add new free engines here
+            # =============================================================================
+            # Template for adding a new free engine:
+            # =============================================================================
+            # 1. Import the utility module at the top:
+            #    import new_free_engine_utils
+            #
+            # 2. Add the engine (no key validation needed):
+            #    tasks[executor.submit(
+            #        new_free_engine_utils.fetch_and_process_new_free_engine,
+            #        query,
+            #        max_limit=limit_per_engine
+            #    )] = "New Free Engine Name"
+            #    print(f"  ✓ New Free Engine Name enabled (free)")
+            # =============================================================================
+            
+            # Example: DOAJ (Directory of Open Access Journals) - uncomment when implemented
+            # tasks[executor.submit(doaj_utils.fetch_and_process_doaj, query, max_limit=limit_per_engine)] = "DOAJ"
+            # print(f"  ✓ DOAJ enabled (free)")
+            
+            # Example: BASE (Bielefeld Academic Search Engine) - uncomment when implemented
+            # tasks[executor.submit(base_utils.fetch_and_process_base, query, max_limit=limit_per_engine)] = "BASE"
+            # print(f"  ✓ BASE enabled (free)")
 
+            # =============================================================================
+            # TASK EXECUTION
+            # =============================================================================
+            
             combined_results = []
             for future in concurrent.futures.as_completed(tasks):
                 engine_name = tasks[future]

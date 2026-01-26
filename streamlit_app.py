@@ -79,6 +79,7 @@ st.markdown("""
 
 def initialize_session_state():
     """Initialize session state with empty API keys (session-only, not persistent)"""
+    # Current Premium Engines
     if 'user_s2_key' not in st.session_state:
         st.session_state['user_s2_key'] = ''
     if 'user_serp_key' not in st.session_state:
@@ -89,6 +90,19 @@ def initialize_session_state():
         st.session_state['user_scopus_key'] = ''
     if 'user_email' not in st.session_state:
         st.session_state['user_email'] = 'researcher@example.com'
+    
+    # 📌 PLACEHOLDER: Add new engine keys here
+    # Template for adding a new premium engine:
+    # if 'user_new_engine_key' not in st.session_state:
+    #     st.session_state['user_new_engine_key'] = ''
+    
+    # Example: IEEE Xplore (uncomment when implemented)
+    # if 'user_ieee_key' not in st.session_state:
+    #     st.session_state['user_ieee_key'] = ''
+    
+    # Example: Web of Science (uncomment when implemented)
+    # if 'user_wos_key' not in st.session_state:
+    #     st.session_state['user_wos_key'] = ''
 
 def load_api_keys():
     """
@@ -96,11 +110,22 @@ def load_api_keys():
     No persistent storage for maximum security in public deployment
     """
     return {
+        # Current Premium Engines
         's2': st.session_state.get('user_s2_key', '').strip(),
         'serp': st.session_state.get('user_serp_key', '').strip(),
         'core': st.session_state.get('user_core_key', '').strip(),
         'scopus': st.session_state.get('user_scopus_key', '').strip(),
-        'email': st.session_state.get('user_email', 'researcher@example.com').strip()
+        'email': st.session_state.get('user_email', 'researcher@example.com').strip(),
+        
+        # 📌 PLACEHOLDER: Add new engine keys here
+        # Template for adding a new premium engine:
+        # 'new_engine': st.session_state.get('user_new_engine_key', '').strip(),
+        
+        # Example: IEEE Xplore (uncomment when implemented)
+        # 'ieee': st.session_state.get('user_ieee_key', '').strip(),
+        
+        # Example: Web of Science (uncomment when implemented)
+        # 'wos': st.session_state.get('user_wos_key', '').strip(),
     }
 
 def render_api_key_input_section():
@@ -129,6 +154,10 @@ def render_api_key_input_section():
         - Automatically cleared on refresh
         - Each user uses their own keys
         """)
+        
+        # =============================================================================
+        # CURRENT PREMIUM ENGINES
+        # =============================================================================
         
         # API Key Inputs
         s2_key = st.text_input(
@@ -167,6 +196,40 @@ def render_api_key_input_section():
             placeholder="Enter your SCOPUS API key"
         )
         
+        # =============================================================================
+        # 📌 PLACEHOLDER: Add new premium engine inputs here
+        # =============================================================================
+        # Template for adding a new premium engine:
+        # new_engine_key = st.text_input(
+        #     "New Engine API Key",
+        #     value="",
+        #     type="password",
+        #     help="Get key at: https://newengine.com/api",
+        #     key="new_engine_input_widget",
+        #     placeholder="Enter your New Engine API key"
+        # )
+        
+        # Example: IEEE Xplore (uncomment when implemented)
+        # ieee_key = st.text_input(
+        #     "IEEE Xplore API Key",
+        #     value="",
+        #     type="password",
+        #     help="Get key at: https://developer.ieee.org/",
+        #     key="ieee_input_widget",
+        #     placeholder="Enter your IEEE API key"
+        # )
+        
+        # Example: Web of Science (uncomment when implemented)
+        # wos_key = st.text_input(
+        #     "Web of Science API Key",
+        #     value="",
+        #     type="password",
+        #     help="Get key at: https://developer.clarivate.com/",
+        #     key="wos_input_widget",
+        #     placeholder="Enter your WoS API key"
+        # )
+        # =============================================================================
+        
         email = st.text_input(
             "Your Email",
             value="researcher@example.com",
@@ -177,12 +240,18 @@ def render_api_key_input_section():
         
         # Apply button
         if st.button("✅ Apply Keys (This Session Only)", key="apply_keys", use_container_width=True):
-            # Update session state
+            # Update session state for current engines
             st.session_state['user_s2_key'] = s2_key.strip()
             st.session_state['user_serp_key'] = serp_key.strip()
             st.session_state['user_core_key'] = core_key.strip()
             st.session_state['user_scopus_key'] = scopus_key.strip()
             st.session_state['user_email'] = email.strip()
+            
+            # 📌 PLACEHOLDER: Update session state for new engines
+            # st.session_state['user_new_engine_key'] = new_engine_key.strip()
+            # st.session_state['user_ieee_key'] = ieee_key.strip()
+            # st.session_state['user_wos_key'] = wos_key.strip()
+            
             st.success("✅ Keys applied for this session!")
             st.rerun()
         
@@ -197,6 +266,12 @@ def render_api_key_input_section():
         if st.session_state.get('user_scopus_key'):
             active_keys.append("SCOPUS")
         
+        # 📌 PLACEHOLDER: Check for new engine keys
+        # if st.session_state.get('user_ieee_key'):
+        #     active_keys.append("IEEE Xplore")
+        # if st.session_state.get('user_wos_key'):
+        #     active_keys.append("Web of Science")
+        
         if active_keys:
             st.success(f"🔑 Active: {', '.join(active_keys)}")
         else:
@@ -205,18 +280,31 @@ def render_api_key_input_section():
 def check_api_keys(api_keys):
     """Check which API keys are configured and valid (not empty)"""
     status = {}
+    
+    # Current Premium Engines
     status['s2'] = "✅" if api_keys.get('s2') and len(api_keys.get('s2', '')) > 5 else "❌"
     status['serp'] = "✅" if api_keys.get('serp') and len(api_keys.get('serp', '')) > 5 else "❌"
     status['core'] = "✅" if api_keys.get('core') and len(api_keys.get('core', '')) > 5 else "❌"
     status['scopus'] = "✅" if api_keys.get('scopus') and len(api_keys.get('scopus', '')) > 5 else "❌"
     status['email'] = "✅" if api_keys.get('email') and api_keys['email'] != 'researcher@example.com' else "⚠️"
+    
+    # 📌 PLACEHOLDER: Add validation for new engines
+    # Template for adding a new premium engine:
+    # status['new_engine'] = "✅" if api_keys.get('new_engine') and len(api_keys.get('new_engine', '')) > 5 else "❌"
+    
+    # Example: IEEE Xplore (uncomment when implemented)
+    # status['ieee'] = "✅" if api_keys.get('ieee') and len(api_keys.get('ieee', '')) > 5 else "❌"
+    
+    # Example: Web of Science (uncomment when implemented)
+    # status['wos'] = "✅" if api_keys.get('wos') and len(api_keys.get('wos', '')) > 5 else "❌"
+    
     return status
 
 def get_available_engines(key_status):
     """Determine which engines are available based on API keys"""
     available = []
     
-    # Key-dependent engines
+    # Current Premium Engines (key-dependent)
     if key_status['s2'] == "✅":
         available.append("Semantic Scholar")
     if key_status['serp'] == "✅":
@@ -226,8 +314,17 @@ def get_available_engines(key_status):
     if key_status['scopus'] == "✅":
         available.append("SCOPUS")
     
-    # Always available engines (no key required)
+    # 📌 PLACEHOLDER: Add checks for new premium engines
+    # if key_status.get('ieee') == "✅":
+    #     available.append("IEEE Xplore")
+    # if key_status.get('wos') == "✅":
+    #     available.append("Web of Science")
+    
+    # Free Engines (always available - no key required)
     available.extend(["arXiv", "PubMed", "Crossref/DOI", "OpenAlex"])
+    
+    # 📌 PLACEHOLDER: Add new free engines here
+    # available.extend(["DOAJ", "BASE"])  # Example free engines
     
     return available
 
@@ -333,14 +430,25 @@ def main():
         
         # Show engine status
         engine_display = {
+            # Current Premium Engines
             "Semantic Scholar": key_status['s2'],
             "Google Scholar": key_status['serp'],
             "CORE": key_status['core'],
             "SCOPUS": key_status['scopus'],
+            
+            # 📌 PLACEHOLDER: Add new premium engines here
+            # "IEEE Xplore": key_status.get('ieee', '❌'),
+            # "Web of Science": key_status.get('wos', '❌'),
+            
+            # Free Engines (always available)
             "arXiv": "✅",
             "PubMed": "✅",
             "Crossref/DOI": "✅",
-            "OpenAlex": "✅"
+            "OpenAlex": "✅",
+            
+            # 📌 PLACEHOLDER: Add new free engines here
+            # "DOAJ": "✅",
+            # "BASE": "✅",
         }
         
         for engine, status in engine_display.items():
@@ -349,6 +457,8 @@ def main():
             else:
                 st.markdown(f"❌ {engine} *(no key)*")
         
+        # 📌 NOTE: Update total engine count when adding new engines
+        # Current: 8 engines (4 premium + 4 free)
         st.info(f"**Active Engines:** {len(available_engines)}/8")
         
         # Informational message
