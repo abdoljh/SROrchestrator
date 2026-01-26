@@ -22,8 +22,7 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
-# #dad4ed Soft Lavender
-# #d4edda Silky Mint Green
+
 # Custom CSS for better UI
 st.markdown("""
     <style>
@@ -48,7 +47,7 @@ st.markdown("""
     }
     .success-box {
         padding: 1rem;
-        background-color: #dad4ed; 
+        background-color: #d4edda; 
         border-left: 4px solid #28a745;
         border-radius: 0.3rem;
         margin: 1rem 0;
