@@ -1,6 +1,7 @@
 """
 SROrch Streamlit Interface
 A web interface for the Scholarly Research Orchestrator
+Enhanced with User-Provided API Keys Support
 """
 
 import streamlit as st
@@ -47,7 +48,7 @@ st.markdown("""
     }
     .success-box {
         padding: 1rem;
-        background-color: #d4edda; 
+        background-color: #d4edda;
         border-left: 4px solid #28a745;
         border-radius: 0.3rem;
         margin: 1rem 0;
@@ -66,28 +67,136 @@ st.markdown("""
         border-radius: 0.3rem;
         margin: 1rem 0;
     }
+    .info-box {
+        padding: 1rem;
+        background-color: #d1ecf1;
+        border-left: 4px solid #17a2b8;
+        border-radius: 0.3rem;
+        margin: 1rem 0;
+    }
     </style>
 """, unsafe_allow_html=True)
 
 def load_api_keys():
-    """Load API keys from Streamlit secrets"""
+    """
+    Load API keys with flexibility:
+    1. Try to load from Streamlit secrets (admin mode)
+    2. Fall back to user-provided keys via session state
+    """
+    # Check if admin mode is enabled in secrets
+    admin_mode = False
     try:
-        return {
-            's2': st.secrets.get("S2_API_KEY", ""),
-            'serp': st.secrets.get("SERP_API_KEY", ""),
-            'core': st.secrets.get("CORE_API_KEY", ""),
-            'scopus': st.secrets.get("SCOPUS_API_KEY", ""),
-            'email': st.secrets.get("USER_EMAIL", "researcher@example.com")
-        }
-    except Exception as e:
-        st.error(f"Error loading secrets: {e}")
-        return {
-            's2': "",
-            'serp': "",
-            'core': "",
-            'scopus': "",
-            'email': "researcher@example.com"
-        }
+        admin_mode = st.secrets.get("ADMIN_MODE", False)
+    except:
+        pass
+    
+    if admin_mode:
+        # Admin mode: Use secrets
+        try:
+            return {
+                's2': st.secrets.get("S2_API_KEY", ""),
+                'serp': st.secrets.get("SERP_API_KEY", ""),
+                'core': st.secrets.get("CORE_API_KEY", ""),
+                'scopus': st.secrets.get("SCOPUS_API_KEY", ""),
+                'email': st.secrets.get("USER_EMAIL", "researcher@example.com")
+            }, True  # Return admin_mode flag
+        except Exception as e:
+            st.error(f"Error loading admin secrets: {e}")
+            admin_mode = False
+    
+    # User mode: Get keys from session state (populated by sidebar inputs)
+    return {
+        's2': st.session_state.get('user_s2_key', ''),
+        'serp': st.session_state.get('user_serp_key', ''),
+        'core': st.session_state.get('user_core_key', ''),
+        'scopus': st.session_state.get('user_scopus_key', ''),
+        'email': st.session_state.get('user_email', 'researcher@example.com')
+    }, False  # Not admin mode
+
+def render_api_key_input_section():
+    """
+    Render the API key input section in sidebar for user-provided keys
+    """
+    st.sidebar.header("🔑 API Configuration")
+    
+    # Check if admin mode
+    admin_mode = False
+    try:
+        admin_mode = st.secrets.get("ADMIN_MODE", False)
+    except:
+        pass
+    
+    if admin_mode:
+        st.sidebar.success("🔒 Admin Mode Active - Using Configured Keys")
+        return
+    
+    # User mode: Allow key input
+    st.sidebar.info("💡 **Tip:** Enter your API keys below or use free engines (arXiv, PubMed, Crossref, OpenAlex)")
+    
+    with st.sidebar.expander("📝 Enter Your API Keys (Optional)", expanded=False):
+        st.markdown("""
+        **Optional Premium Engines:**
+        - Semantic Scholar (recommended)
+        - Google Scholar (via SERP API)
+        - CORE
+        - SCOPUS
+        
+        **Always Available (No Key Needed):**
+        - arXiv
+        - PubMed
+        - Crossref/DOI
+        - OpenAlex
+        """)
+        
+        # API Key Inputs
+        s2_key = st.text_input(
+            "Semantic Scholar API Key",
+            value=st.session_state.get('user_s2_key', ''),
+            type="password",
+            help="Get free key at: https://www.semanticscholar.org/product/api",
+            key="s2_input"
+        )
+        
+        serp_key = st.text_input(
+            "SERP API Key (Google Scholar)",
+            value=st.session_state.get('user_serp_key', ''),
+            type="password",
+            help="Get key at: https://serpapi.com/",
+            key="serp_input"
+        )
+        
+        core_key = st.text_input(
+            "CORE API Key",
+            value=st.session_state.get('user_core_key', ''),
+            type="password",
+            help="Get key at: https://core.ac.uk/services/api",
+            key="core_input"
+        )
+        
+        scopus_key = st.text_input(
+            "SCOPUS API Key",
+            value=st.session_state.get('user_scopus_key', ''),
+            type="password",
+            help="Get key at: https://dev.elsevier.com/",
+            key="scopus_input"
+        )
+        
+        email = st.text_input(
+            "Your Email",
+            value=st.session_state.get('user_email', 'researcher@example.com'),
+            help="Used for API requests to arXiv, PubMed, etc.",
+            key="email_input"
+        )
+        
+        # Update session state
+        if st.button("💾 Save API Keys", key="save_keys"):
+            st.session_state['user_s2_key'] = s2_key
+            st.session_state['user_serp_key'] = serp_key
+            st.session_state['user_core_key'] = core_key
+            st.session_state['user_scopus_key'] = scopus_key
+            st.session_state['user_email'] = email
+            st.success("✅ API keys saved for this session!")
+            st.rerun()
 
 def check_api_keys(api_keys):
     """Check which API keys are configured"""
@@ -96,7 +205,27 @@ def check_api_keys(api_keys):
     status['serp'] = "✅" if api_keys.get('serp') else "❌"
     status['core'] = "✅" if api_keys.get('core') else "❌"
     status['scopus'] = "✅" if api_keys.get('scopus') else "❌"
+    status['email'] = "✅" if api_keys.get('email') and api_keys['email'] != 'researcher@example.com' else "⚠️"
     return status
+
+def get_available_engines(key_status, api_keys):
+    """Determine which engines are available based on API keys"""
+    available = []
+    
+    # Key-dependent engines
+    if key_status['s2'] == "✅":
+        available.append("Semantic Scholar")
+    if key_status['serp'] == "✅":
+        available.append("Google Scholar")
+    if key_status['core'] == "✅":
+        available.append("CORE")
+    if key_status['scopus'] == "✅":
+        available.append("SCOPUS")
+    
+    # Always available engines (no key required)
+    available.extend(["arXiv", "PubMed", "Crossref/DOI", "OpenAlex"])
+    
+    return list(set(available))
 
 def display_results_preview(results, limit=5):
     """Display a preview of the top results"""
@@ -170,7 +299,7 @@ def create_download_buttons(output_dir):
                 data=f,
                 file_name=os.path.basename(zip_path),
                 mime='application/zip',
-                width="stretch"
+                use_container_width=True
             )
 
 def main():
@@ -182,37 +311,47 @@ def main():
     with st.sidebar:
         st.header("⚙️ Configuration")
         
-        # API Key Status
-        st.subheader("🔑 API Key Status")
-        api_keys = load_api_keys()
+        # API Key Input Section (NEW)
+        render_api_key_input_section()
+        
+        st.divider()
+        
+        # Load API keys and check status
+        api_keys, is_admin = load_api_keys()
         key_status = check_api_keys(api_keys)
+        available_engines = get_available_engines(key_status, api_keys)
         
-        st.write(f"Semantic Scholar: {key_status['s2']}")
-        st.write(f"SERP API (Google Scholar): {key_status['serp']}")
-        st.write(f"CORE API: {key_status['core']}")
-        st.write(f"SCOPUS API: {key_status['scopus']}")
-        st.write(f"Email (arXiv/PubMed/etc): {'✅' if api_keys.get('email') and api_keys['email'] != 'researcher@example.com' else '⚠️'}")
+        # Engine Status Display
+        st.subheader("🔍 Available Engines")
         
-        # Show available engines count
-        available_engines = []
-        if key_status['s2'] == "✅":
-            available_engines.append("Semantic Scholar")
-        if key_status['serp'] == "✅":
-            available_engines.append("Google Scholar")
-        if key_status['core'] == "✅":
-            available_engines.append("CORE")
-        if key_status['scopus'] == "✅":
-            available_engines.append("SCOPUS")
-        if api_keys.get('email'):
-            available_engines.extend(["arXiv", "PubMed", "Crossref", "OpenAlex"])
+        # Show engine status
+        engine_display = {
+            "Semantic Scholar": key_status['s2'],
+            "Google Scholar": key_status['serp'],
+            "CORE": key_status['core'],
+            "SCOPUS": key_status['scopus'],
+            "arXiv": "✅",
+            "PubMed": "✅",
+            "Crossref/DOI": "✅",
+            "OpenAlex": "✅"
+        }
         
-        st.info(f"**Available Engines:** {len(set(available_engines))}/8")
+        for engine, status in engine_display.items():
+            if status == "✅":
+                st.markdown(f"✅ **{engine}**")
+            else:
+                st.markdown(f"❌ {engine} *(no key)*")
         
-        # Warning for missing critical keys
-        if not any([key_status['s2'] == "✅", key_status['serp'] == "✅", key_status['core'] == "✅", key_status['scopus'] == "✅", api_keys.get('email')]):
-            st.error("⚠️ No API keys configured! Application may not work properly.")
-        elif len(set(available_engines)) < 4:
-            st.warning(f"⚠️ Only {len(set(available_engines))} engines available. Configure more API keys for better coverage.")
+        st.info(f"**Active Engines:** {len(available_engines)}/8")
+        
+        # Informational message
+        if len(available_engines) < 8:
+            st.markdown("""
+            <div class="info-box">
+                <strong>💡 Get More Coverage!</strong><br>
+                You're using <strong>{}</strong> free engines. Add API keys above to unlock premium engines for better results!
+            </div>
+            """.format(len([e for e in available_engines if e in ["arXiv", "PubMed", "Crossref/DOI", "OpenAlex"]])), unsafe_allow_html=True)
         
         st.divider()
         
@@ -322,6 +461,12 @@ def main():
     with tab1:
         st.header("Search Academic Literature")
         
+        # Show engine availability info
+        if len(available_engines) == 8:
+            st.success(f"✅ All 8 engines active! You'll get comprehensive coverage.")
+        else:
+            st.info(f"ℹ️ Searching with {len(available_engines)} engines: {', '.join(available_engines)}")
+        
         # Search input
         search_query = st.text_input(
             "Enter your research query:",
@@ -332,10 +477,10 @@ def main():
         col1, col2, col3 = st.columns([2, 1, 1])
         
         with col1:
-            search_button = st.button("🚀 Start Search", type="primary", width="stretch")
+            search_button = st.button("🚀 Start Search", type="primary", use_container_width=True)
         
         with col2:
-            if st.button("🔄 Clear Cache", width="stretch"):
+            if st.button("🔄 Clear Cache", use_container_width=True):
                 st.cache_data.clear()
                 st.success("Cache cleared!")
         
@@ -343,6 +488,8 @@ def main():
         if search_button:
             if not search_query:
                 st.error("Please enter a search query!")
+            elif len(available_engines) < 4:
+                st.warning("⚠️ You have fewer than 4 engines available. Results may be limited. Consider adding more API keys for better coverage.")
             else:
                 # Store in session state
                 st.session_state['search_query'] = search_query
@@ -359,15 +506,15 @@ def main():
                     
                     # Set API keys in environment
                     for key, value in api_keys.items():
-                        if key != 'email':
+                        if key != 'email' and value:  # Only set if not empty
                             os.environ[f"{key.upper()}_API_KEY"] = value
-                        else:
+                        elif key == 'email':
                             os.environ['USER_EMAIL'] = value
                     
                     # Initialize orchestrator
                     orchestrator = ResearchOrchestrator(config=config)
                     
-                    status_text.text("🔍 Searching across multiple databases...")
+                    status_text.text(f"🔍 Searching across {len(available_engines)} databases...")
                     progress_bar.progress(30)
                     
                     # Run search
@@ -392,6 +539,7 @@ def main():
                     <div class="success-box">
                         <h3>✅ Search Completed Successfully!</h3>
                         <p><strong>Total Papers Found:</strong> {len(results)}</p>
+                        <p><strong>Engines Used:</strong> {len(orchestrator.session_metadata['successful_engines'])}</p>
                         <p><strong>Execution Time:</strong> {(orchestrator.session_metadata['end_time'] - orchestrator.session_metadata['start_time']).total_seconds():.2f} seconds</p>
                         <p><strong>Output Directory:</strong> {orchestrator.output_dir}</p>
                     </div>
@@ -409,7 +557,8 @@ def main():
                     """, unsafe_allow_html=True)
                     st.error(f"Error details: {e}")
                     import traceback
-                    st.code(traceback.format_exc())
+                    with st.expander("🔍 View Full Error Trace"):
+                        st.code(traceback.format_exc())
     
     with tab2:
         st.header("Search Results & Analytics")
@@ -443,7 +592,7 @@ def main():
             chart_path = os.path.join(output_dir, "research_analytics.png")
             if os.path.exists(chart_path):
                 st.subheader("📈 Research Analytics")
-                st.image(chart_path, width="stretch")
+                st.image(chart_path, use_container_width=True)
                 st.divider()
             
             # Results preview
@@ -479,14 +628,18 @@ def main():
         results from multiple scholarly databases to provide comprehensive research coverage.
         
         #### 📚 Supported Databases
-        - **Semantic Scholar** - AI-powered academic search
+        
+        **Premium Engines (Require API Keys):**
+        - **Semantic Scholar** - AI-powered academic search (free key available)
+        - **Google Scholar** - Broad academic search (via SERP API)
+        - **CORE** - Open access research aggregator
+        - **SCOPUS** - Comprehensive scientific database
+        
+        **Free Engines (Always Available):**
         - **arXiv** - Preprint repository for STEM fields
         - **PubMed** - Biomedical literature database
-        - **Google Scholar** - Broad academic search (via SERP API)
         - **Crossref/DOI** - Digital Object Identifier resolution
         - **OpenAlex** - Open catalog of scholarly papers
-        - **CORE** - Open access research aggregator
-        - **SCOPUS** - Open access research aggregator
 
         #### ✨ Key Features
         - **Multi-source consensus detection** - Identifies papers found across multiple databases
@@ -496,6 +649,7 @@ def main():
         - **Multiple export formats** - CSV, JSON, and BibTeX support
         - **Recency boosting** - Optional preference for recent publications
         - **High-consensus alerts** - Automatic notifications for widely-indexed papers
+        - **Flexible API key management** - Use your own keys or free engines
         
         #### 🎯 Use Cases
         - Literature reviews and systematic reviews
@@ -504,27 +658,46 @@ def main():
         - Trend identification in research fields
         - Multi-database validation
         
-        #### 🔧 Configuration
-        Configure your search using the sidebar settings:
-        - Adjust scoring weights for citations and sources
-        - Enable/disable recency boosting
-        - Set consensus thresholds
-        - Choose export formats
-        - Control visualization generation
+        #### 🔧 Getting Started
+        
+        **Option 1: Use Free Engines Only**
+        - No API keys required
+        - Access to 4 engines: arXiv, PubMed, Crossref, OpenAlex
+        - Perfect for quick searches and open access research
+        
+        **Option 2: Add Your API Keys**
+        - Click "Enter Your API Keys" in the sidebar
+        - Add keys for premium engines (Semantic Scholar recommended)
+        - Get up to 8 engines for comprehensive coverage
+        
+        #### 🔑 How to Get API Keys
+        
+        **Semantic Scholar** (Recommended - Free)
+        - Visit: https://www.semanticscholar.org/product/api
+        - Sign up and request a free API key
+        - Provides excellent metadata and abstracts
+        
+        **SERP API** (Google Scholar)
+        - Visit: https://serpapi.com/
+        - Free tier available with 100 searches/month
+        - Unlocks Google Scholar integration
+        
+        **CORE API**
+        - Visit: https://core.ac.uk/services/api
+        - Free academic API key available
+        - Access to millions of open access papers
+        
+        **SCOPUS API**
+        - Visit: https://dev.elsevier.com/
+        - Requires institutional access or paid plan
+        - Premium scientific database
         
         #### 📖 How to Use
-        1. Configure your API keys in Streamlit secrets
+        1. (Optional) Add your API keys in the sidebar
         2. Enter your research query in the Search tab
         3. Adjust settings in the sidebar as needed
         4. Click "Start Search" and wait for results
         5. View analytics and download reports in the Results tab
-        
-        #### 🔑 API Keys Required
-        - **S2_API_KEY** - Semantic Scholar API key (recommended)
-        - **SERP_API_KEY** - SerpAPI key for Google Scholar (optional)
-        - **CORE_API_KEY** - CORE API key (optional)
-        - **SCOPUS_API_KEY** - SCOPUS API key (optional)
-        - **USER_EMAIL** - Your email for API requests (required for some services)
         
         #### 📝 Output Files
         - `MASTER_REPORT_FINAL.csv` - Complete results table
@@ -534,9 +707,15 @@ def main():
         - `research_analytics.png` - Visualization dashboard
         - `SESSION_REPORT.txt` - Search session metadata
         
+        #### 🔒 Privacy & Security
+        - Your API keys are only stored in your browser session
+        - Keys are never saved to disk or shared
+        - Each user provides their own keys
+        - No data is collected or logged
+        
         ---
         
-        **Version:** Enhanced v2.0  
+        **Version:** Enhanced v2.1 (User-Provided Keys)  
         **Author:** Research Tools Team  
         **License:** MIT
         """)
