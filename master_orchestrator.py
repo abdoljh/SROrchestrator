@@ -324,37 +324,41 @@ class ResearchOrchestrator:
             # ✨ FIXED: Only create tasks for engines with valid API keys
             tasks = {}
             
+            # Helper function to validate key
+            def is_valid_key(key):
+                return key and isinstance(key, str) and len(key.strip()) > 5
+            
             # Semantic Scholar - requires API key
-            if self.api_keys.get('s2'):
+            if is_valid_key(self.api_keys.get('s2')):
                 tasks[executor.submit(s2_utils.fetch_and_process_papers, self.api_keys['s2'], query, csv_limit=limit_per_engine)] = "Semantic Scholar"
                 print(f"  ✓ Semantic Scholar enabled (API key provided)")
             else:
-                print(f"  ✗ Semantic Scholar skipped (no API key)")
-                self.session_metadata['failed_engines'].append("Semantic Scholar")
+                print(f"  ✗ Semantic Scholar skipped (no valid API key)")
+                self.session_metadata['failed_engines'].append("Semantic Scholar (no API key)")
             
             # Google Scholar - requires SERP API key
-            if self.api_keys.get('serp'):
+            if is_valid_key(self.api_keys.get('serp')):
                 tasks[executor.submit(scholar_utils.fetch_and_process_scholar, self.api_keys['serp'], query, max_limit=limit_per_engine)] = "Google Scholar"
                 print(f"  ✓ Google Scholar enabled (API key provided)")
             else:
-                print(f"  ✗ Google Scholar skipped (no API key)")
-                self.session_metadata['failed_engines'].append("Google Scholar")
+                print(f"  ✗ Google Scholar skipped (no valid API key)")
+                self.session_metadata['failed_engines'].append("Google Scholar (no API key)")
             
             # CORE - requires API key
-            if self.api_keys.get('core'):
+            if is_valid_key(self.api_keys.get('core')):
                 tasks[executor.submit(core_utils.fetch_and_process_core, self.api_keys['core'], query, max_limit=limit_per_engine)] = "CORE"
                 print(f"  ✓ CORE enabled (API key provided)")
             else:
-                print(f"  ✗ CORE skipped (no API key)")
-                self.session_metadata['failed_engines'].append("CORE")
+                print(f"  ✗ CORE skipped (no valid API key)")
+                self.session_metadata['failed_engines'].append("CORE (no API key)")
             
             # SCOPUS - requires API key
-            if self.api_keys.get('scopus'):
+            if is_valid_key(self.api_keys.get('scopus')):
                 tasks[executor.submit(scopus_utils.fetch_and_process_scopus, self.api_keys['scopus'], query, max_limit=limit_per_engine, save_csv=False)] = "SCOPUS"
                 print(f"  ✓ SCOPUS enabled (API key provided)")
             else:
-                print(f"  ✗ SCOPUS skipped (no API key)")
-                self.session_metadata['failed_engines'].append("SCOPUS")
+                print(f"  ✗ SCOPUS skipped (no valid API key)")
+                self.session_metadata['failed_engines'].append("SCOPUS (no API key)")
             
             # Free engines - always available
             tasks[executor.submit(arxiv_utils.fetch_and_process_arxiv, query, max_limit=limit_per_engine)] = "arXiv"
@@ -376,18 +380,17 @@ class ResearchOrchestrator:
                     data = future.result()
                     if data:
                         combined_results.extend(data)
-                        # Only add to successful if not already marked as failed (missing key)
-                        if engine_name not in self.session_metadata['failed_engines']:
-                            self.session_metadata['successful_engines'].append(engine_name)
-                        else:
-                            # Remove from failed list if it succeeded despite being marked
-                            self.session_metadata['failed_engines'].remove(engine_name)
+                        self.session_metadata['successful_engines'].append(engine_name)
                         self.session_metadata['total_api_calls'] += 1
+                        print(f"  ✓ {engine_name} completed successfully ({len(data)} papers)")
+                    else:
+                        print(f"  ⚠️  {engine_name} returned no results")
+                        if engine_name not in self.session_metadata['failed_engines']:
+                            self.session_metadata['failed_engines'].append(f"{engine_name} (no results)")
                 except Exception as e:
-                    print(f"  ⚠️  [Error Resilience] {engine_name} failed: {e}. Skipping...")
-                    # Only add to failed if not already there
+                    print(f"  ⚠️  {engine_name} failed: {e}")
                     if engine_name not in self.session_metadata['failed_engines']:
-                        self.session_metadata['failed_engines'].append(engine_name)
+                        self.session_metadata['failed_engines'].append(f"{engine_name} (error: {str(e)[:50]})")
 
         final_list = self.deduplicate_and_score(combined_results)
 
@@ -398,6 +401,11 @@ class ResearchOrchestrator:
 
         # ✨ NEW: Track end time
         self.session_metadata['end_time'] = datetime.now()
+        
+        print(f"\n📊 Search Summary:")
+        print(f"  Successful: {len(self.session_metadata['successful_engines'])} engines")
+        print(f"  Failed: {len(self.session_metadata['failed_engines'])} engines")
+        print(f"  Total unique papers: {len(final_list)}")
 
         return final_list
 
