@@ -854,9 +854,9 @@ def main():
         
         #### 📊 Understanding Results
         
-        **Relevance Score:** Based on citations, source count, and recency
-        **Source Count:** How many databases found this paper (higher = more reliable)
-        **High Consensus:** Papers found in 4+ databases automatically flagged
+        - **Relevance Score:** Based on citations, source count, and recency
+        - **Source Count:** How many databases found this paper (higher = more reliable)
+        - **High Consensus:** Papers found in 4+ databases automatically flagged
         
         #### 🎯 Use Cases
         - Literature reviews and systematic reviews
