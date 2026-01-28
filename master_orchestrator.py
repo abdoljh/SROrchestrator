@@ -21,29 +21,47 @@ import openalex_utils
 import core_utils
 import scopus_utils
 
+# Additional search engines
+import europe_pmc_utils
+import plos_utils
+import ssrn_utils
+import deepdyve_utils
+import springer_utils
+import wiley_utils
+import tf_utils
+import acm_utils
+import dblp_utils
+
+# ✅ NEW: Additional search engines (9 new utilities)
+import europe_pmc_utils
+import plos_utils
+import ssrn_utils
+import deepdyve_utils
+import springer_utils
+import wiley_utils
+import tf_utils
+import acm_utils
+import dblp_utils
+
 load_dotenv()
 
 class ResearchOrchestrator:
     def __init__(self, config: Optional[Dict] = None):  # ✨ NEW: Optional configuration parameter
         self.api_keys = {
+            # Current Premium Engines
             's2': os.getenv('S2_API_KEY'),
             'serp': os.getenv('SERP_API_KEY'),
             'core': os.getenv('CORE_API_KEY'),
             'scopus': os.getenv('SCOPUS_API_KEY'),
+            'springer': os.getenv('META_SPRINGER_API_KEY'),  # ✅ NEW: Springer Nature
             'email': os.getenv('USER_EMAIL', 'researcher@example.com'),
             
-            # 📌 PLACEHOLDER: Add new API keys here
+            # 📌 PLACEHOLDER: Add additional premium API keys here
             # Example for IEEE Xplore:
             # 'ieee': os.getenv('IEEE_API_KEY'),
             
             # Example for Web of Science:
             # 'wos': os.getenv('WOS_API_KEY'),
-            
-            # Example for Springer:
-            # 'springer': os.getenv('SPRINGER_API_KEY'),
-            
-            # Example for Nature:
-            # 'nature': os.getenv('NATURE_API_KEY'),
         }
         self.output_dir = ""
 
@@ -333,7 +351,7 @@ class ResearchOrchestrator:
         self.create_output_directory(query)
         print(f"\n[Master] Orchestrating search for: '{query}'...")
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:  # ✅ Increased workers for more engines
             # ✨ FIXED: Only create tasks for engines with valid API keys
             tasks = {}
             
@@ -377,7 +395,15 @@ class ResearchOrchestrator:
                 print(f"  ✗ SCOPUS skipped (no valid API key)")
                 self.session_metadata['failed_engines'].append("SCOPUS (no API key)")
             
-            # 📌 PLACEHOLDER: Add new premium engines here
+            # ✅ NEW: Springer Nature - requires API key
+            if is_valid_key(self.api_keys.get('springer')):
+                tasks[executor.submit(springer_utils.fetch_and_process_springer, self.api_keys['springer'], query, max_limit=limit_per_engine)] = "Springer Nature"
+                print(f"  ✓ Springer Nature enabled (API key provided)")
+            else:
+                print(f"  ✗ Springer Nature skipped (no valid API key)")
+                self.session_metadata['failed_engines'].append("Springer Nature (no API key)")
+            
+            # 📌 PLACEHOLDER: Add additional premium engines here
             # =============================================================================
             # Template for adding a new premium engine:
             # =============================================================================
@@ -418,6 +444,7 @@ class ResearchOrchestrator:
             # FREE ENGINES (Always Available - No API Keys Required)
             # =============================================================================
             
+            # Original Free Engines
             tasks[executor.submit(arxiv_utils.fetch_and_process_arxiv, query, max_limit=limit_per_engine)] = "arXiv"
             print(f"  ✓ arXiv enabled (free)")
             
@@ -430,7 +457,32 @@ class ResearchOrchestrator:
             tasks[executor.submit(openalex_utils.fetch_and_process_openalex, query, max_limit=limit_per_engine)] = "OpenAlex"
             print(f"  ✓ OpenAlex enabled (free)")
             
-            # 📌 PLACEHOLDER: Add new free engines here
+            # ✅ NEW: Additional Free Engines (8 new free engines)
+            tasks[executor.submit(europe_pmc_utils.fetch_and_process_europe_pmc, query, max_limit=limit_per_engine)] = "Europe PMC"
+            print(f"  ✓ Europe PMC enabled (free)")
+            
+            tasks[executor.submit(plos_utils.fetch_and_process_plos, query, max_limit=limit_per_engine)] = "PLOS"
+            print(f"  ✓ PLOS enabled (free)")
+            
+            tasks[executor.submit(ssrn_utils.fetch_and_process_ssrn, query, max_limit=limit_per_engine)] = "SSRN"
+            print(f"  ✓ SSRN enabled (free)")
+            
+            tasks[executor.submit(deepdyve_utils.fetch_and_process_deepdyve, query, max_limit=limit_per_engine)] = "DeepDyve"
+            print(f"  ✓ DeepDyve enabled (free)")
+            
+            tasks[executor.submit(wiley_utils.fetch_and_process_wiley, query, max_limit=limit_per_engine)] = "Wiley"
+            print(f"  ✓ Wiley enabled (free)")
+            
+            tasks[executor.submit(tf_utils.fetch_and_process_tf, query, max_limit=limit_per_engine)] = "Taylor & Francis"
+            print(f"  ✓ Taylor & Francis enabled (free)")
+            
+            tasks[executor.submit(acm_utils.fetch_and_process_acm, query, max_limit=limit_per_engine)] = "ACM Digital Library"
+            print(f"  ✓ ACM Digital Library enabled (free)")
+            
+            tasks[executor.submit(dblp_utils.fetch_and_process_dblp, query, max_limit=limit_per_engine)] = "DBLP"
+            print(f"  ✓ DBLP enabled (free)")
+            
+            # 📌 PLACEHOLDER: Add additional free engines here
             # =============================================================================
             # Template for adding a new free engine:
             # =============================================================================

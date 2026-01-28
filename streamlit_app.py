@@ -88,10 +88,12 @@ def initialize_session_state():
         st.session_state['user_core_key'] = ''
     if 'user_scopus_key' not in st.session_state:
         st.session_state['user_scopus_key'] = ''
+    if 'user_springer_key' not in st.session_state:  # ✅ NEW
+        st.session_state['user_springer_key'] = ''
     if 'user_email' not in st.session_state:
         st.session_state['user_email'] = 'researcher@example.com'
     
-    # 📌 PLACEHOLDER: Add new engine keys here
+    # 📌 PLACEHOLDER: Add additional premium engine keys here
     # Template for adding a new premium engine:
     # if 'user_new_engine_key' not in st.session_state:
     #     st.session_state['user_new_engine_key'] = ''
@@ -115,9 +117,10 @@ def load_api_keys():
         'serp': st.session_state.get('user_serp_key', '').strip(),
         'core': st.session_state.get('user_core_key', '').strip(),
         'scopus': st.session_state.get('user_scopus_key', '').strip(),
+        'springer': st.session_state.get('user_springer_key', '').strip(),  # ✅ NEW
         'email': st.session_state.get('user_email', 'researcher@example.com').strip(),
         
-        # 📌 PLACEHOLDER: Add new engine keys here
+        # 📌 PLACEHOLDER: Add additional premium engine keys here
         # Template for adding a new premium engine:
         # 'new_engine': st.session_state.get('user_new_engine_key', '').strip(),
         
@@ -144,9 +147,12 @@ def render_api_key_input_section():
         - Google Scholar (via SERP API)
         - CORE
         - SCOPUS
+        - Springer Nature
         
         **Always Available (No Key Needed):**
         - arXiv, PubMed, Crossref/DOI, OpenAlex
+        - Europe PMC, PLOS, SSRN, DeepDyve
+        - Wiley, Taylor & Francis, ACM, DBLP
         
         🔒 **Security Note:**
         - Keys stored in browser memory only
@@ -194,6 +200,16 @@ def render_api_key_input_section():
             help="Get key at: https://dev.elsevier.com/",
             key="scopus_input_widget",
             placeholder="Enter your SCOPUS API key"
+        )
+        
+        # ✅ NEW: Springer Nature
+        springer_key = st.text_input(
+            "Springer Nature API Key",
+            value="",
+            type="password",
+            help="Get key at: https://dev.springernature.com/",
+            key="springer_input_widget",
+            placeholder="Enter your Springer API key"
         )
         
         # =============================================================================
@@ -245,9 +261,10 @@ def render_api_key_input_section():
             st.session_state['user_serp_key'] = serp_key.strip()
             st.session_state['user_core_key'] = core_key.strip()
             st.session_state['user_scopus_key'] = scopus_key.strip()
+            st.session_state['user_springer_key'] = springer_key.strip()  # ✅ NEW
             st.session_state['user_email'] = email.strip()
             
-            # 📌 PLACEHOLDER: Update session state for new engines
+            # 📌 PLACEHOLDER: Update session state for additional engines
             # st.session_state['user_new_engine_key'] = new_engine_key.strip()
             # st.session_state['user_ieee_key'] = ieee_key.strip()
             # st.session_state['user_wos_key'] = wos_key.strip()
@@ -265,6 +282,8 @@ def render_api_key_input_section():
             active_keys.append("CORE")
         if st.session_state.get('user_scopus_key'):
             active_keys.append("SCOPUS")
+        if st.session_state.get('user_springer_key'):  # ✅ NEW
+            active_keys.append("Springer Nature")
         
         # 📌 PLACEHOLDER: Check for new engine keys
         # if st.session_state.get('user_ieee_key'):
@@ -286,9 +305,10 @@ def check_api_keys(api_keys):
     status['serp'] = "✅" if api_keys.get('serp') and len(api_keys.get('serp', '')) > 5 else "❌"
     status['core'] = "✅" if api_keys.get('core') and len(api_keys.get('core', '')) > 5 else "❌"
     status['scopus'] = "✅" if api_keys.get('scopus') and len(api_keys.get('scopus', '')) > 5 else "❌"
+    status['springer'] = "✅" if api_keys.get('springer') and len(api_keys.get('springer', '')) > 5 else "❌"  # ✅ NEW
     status['email'] = "✅" if api_keys.get('email') and api_keys['email'] != 'researcher@example.com' else "⚠️"
     
-    # 📌 PLACEHOLDER: Add validation for new engines
+    # 📌 PLACEHOLDER: Add validation for additional engines
     # Template for adding a new premium engine:
     # status['new_engine'] = "✅" if api_keys.get('new_engine') and len(api_keys.get('new_engine', '')) > 5 else "❌"
     
@@ -313,17 +333,26 @@ def get_available_engines(key_status):
         available.append("CORE")
     if key_status['scopus'] == "✅":
         available.append("SCOPUS")
+    if key_status['springer'] == "✅":  # ✅ NEW
+        available.append("Springer Nature")
     
-    # 📌 PLACEHOLDER: Add checks for new premium engines
+    # 📌 PLACEHOLDER: Add checks for additional premium engines
     # if key_status.get('ieee') == "✅":
     #     available.append("IEEE Xplore")
     # if key_status.get('wos') == "✅":
     #     available.append("Web of Science")
     
     # Free Engines (always available - no key required)
+    # Original 4 free engines
     available.extend(["arXiv", "PubMed", "Crossref/DOI", "OpenAlex"])
     
-    # 📌 PLACEHOLDER: Add new free engines here
+    # ✅ NEW: 8 additional free engines
+    available.extend([
+        "Europe PMC", "PLOS", "SSRN", "DeepDyve",
+        "Wiley", "Taylor & Francis", "ACM Digital Library", "DBLP"
+    ])
+    
+    # 📌 PLACEHOLDER: Add additional free engines here
     # available.extend(["DOAJ", "BASE"])  # Example free engines
     
     return available
@@ -435,18 +464,29 @@ def main():
             "Google Scholar": key_status['serp'],
             "CORE": key_status['core'],
             "SCOPUS": key_status['scopus'],
+            "Springer Nature": key_status['springer'],  # ✅ NEW
             
-            # 📌 PLACEHOLDER: Add new premium engines here
+            # 📌 PLACEHOLDER: Add additional premium engines here
             # "IEEE Xplore": key_status.get('ieee', '❌'),
             # "Web of Science": key_status.get('wos', '❌'),
             
-            # Free Engines (always available)
+            # Original Free Engines (always available)
             "arXiv": "✅",
             "PubMed": "✅",
             "Crossref/DOI": "✅",
             "OpenAlex": "✅",
             
-            # 📌 PLACEHOLDER: Add new free engines here
+            # ✅ NEW: Additional Free Engines (8 new)
+            "Europe PMC": "✅",
+            "PLOS": "✅",
+            "SSRN": "✅",
+            "DeepDyve": "✅",
+            "Wiley": "✅",
+            "Taylor & Francis": "✅",
+            "ACM Digital Library": "✅",
+            "DBLP": "✅",
+            
+            # 📌 PLACEHOLDER: Add additional free engines here
             # "DOAJ": "✅",
             # "BASE": "✅",
         }
@@ -457,9 +497,8 @@ def main():
             else:
                 st.markdown(f"❌ {engine} *(no key)*")
         
-        # 📌 NOTE: Update total engine count when adding new engines
-        # Current: 8 engines (4 premium + 4 free)
-        st.info(f"**Active Engines:** {len(available_engines)}/8")
+        # ✅ UPDATED: Total engine count (5 premium + 12 free = 17 engines)
+        st.info(f"**Active Engines:** {len(available_engines)}/17")
         
         # Informational message
         if len(available_engines) < 8:
@@ -752,19 +791,32 @@ def main():
         SROrch is a powerful multi-engine academic literature search and analysis tool that aggregates 
         results from multiple scholarly databases to provide comprehensive research coverage.
         
-        #### 📚 Supported Databases
+        #### 📚 Supported Databases (17 Engines!)
         
         **Premium Engines (Require Your Own API Keys):**
         - **Semantic Scholar** - AI-powered academic search (FREE key available!)
         - **Google Scholar** - Broad academic search (via SERP API)
         - **CORE** - Open access research aggregator
         - **SCOPUS** - Comprehensive scientific database
+        - **Springer Nature** - Major scientific publisher
         
         **Free Engines (Always Available - No Keys Needed):**
+        
+        *Original Core Engines:*
         - **arXiv** - Preprint repository for STEM fields
         - **PubMed** - Biomedical literature database
         - **Crossref/DOI** - Digital Object Identifier resolution
         - **OpenAlex** - Open catalog of scholarly papers
+        
+        *Additional Free Engines:*
+        - **Europe PMC** - European biomedical literature
+        - **PLOS** - Open access scientific journals
+        - **SSRN** - Social science research network
+        - **DeepDyve** - Academic research rental service
+        - **Wiley** - Major scientific publisher
+        - **Taylor & Francis** - Academic publisher
+        - **ACM Digital Library** - Computing literature
+        - **DBLP** - Computer science bibliography
 
         #### ✨ Key Features
         - **Multi-source consensus detection** - Identifies papers found across multiple databases
@@ -854,9 +906,9 @@ def main():
         
         #### 📊 Understanding Results
         
-        - **Relevance Score:** Based on citations, source count, and recency
-        - **Source Count:** How many databases found this paper (higher = more reliable)
-        - **High Consensus:** Papers found in 4+ databases automatically flagged
+        **Relevance Score:** Based on citations, source count, and recency
+        **Source Count:** How many databases found this paper (higher = more reliable)
+        **High Consensus:** Papers found in 4+ databases automatically flagged
         
         #### 🎯 Use Cases
         - Literature reviews and systematic reviews
