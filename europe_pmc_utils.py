@@ -31,7 +31,7 @@ def format_epmc_authors(author_str):
         return f"{formatted[0]} and {formatted[1]}"
     return formatted[0] if formatted else "Unknown Author"
 
-def fetch_and_process_epmc(query, max_limit=20):
+def fetch_and_process_europe_pmc(query, max_limit=20):
     """
     Searches Europe PMC via their RESTful API.
     API Documentation: https://europepmc.org/RestfulWebService
