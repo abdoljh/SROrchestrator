@@ -98,12 +98,29 @@ class ResearchOrchestrator:
         print(f"📂 Created session directory: {self.output_dir}")
         return self.output_dir
 
+    # Helper function to normalize venue field
+    def normalize_venue(self, venue):
+        """
+        Normalize venue field to always return a string.
+        Handles cases where venue might be a list, None, or other types.
+        """
+        if venue is None:
+            return ''
+        if isinstance(venue, list):
+            # Join list elements, filtering out None/empty values
+            return ' '.join(str(v) for v in venue if v)
+        return str(venue)
+
     # ✨ NEW: Enhanced deduplication with configurable scoring
     def deduplicate_and_score(self, all_papers):
         unique_papers = {}
         current_year = datetime.now().year
 
         for paper in all_papers:
+            # Normalize venue to prevent list issues
+            if 'venue' in paper:
+                paper['venue'] = self.normalize_venue(paper['venue'])
+            
             doi = str(paper.get('doi') or 'N/A').lower().strip()
             title = paper.get('title', '').lower().strip()
             clean_title = re.sub(r'[^a-zA-Z0-9]', '', title)
@@ -558,8 +575,13 @@ class ResearchOrchestrator:
                 year = paper.get('year', 'n.d.')
                 cite_key = f"{first_author}{year}_{i}"
 
-                # Determine entry type
-                venue = paper.get('venue', '').lower()
+                # Determine entry type - handle venue as string or list
+                venue_raw = paper.get('venue', '')
+                if isinstance(venue_raw, list):
+                    venue = ' '.join(str(v) for v in venue_raw if v).lower()
+                else:
+                    venue = str(venue_raw).lower() if venue_raw else ''
+                
                 if 'conference' in venue or 'proceedings' in venue:
                     entry_type = 'inproceedings'
                 elif 'arxiv' in venue:
@@ -574,7 +596,14 @@ class ResearchOrchestrator:
 
                 if paper.get('venue'):
                     journal_key = 'booktitle' if entry_type == 'inproceedings' else 'journal'
-                    f.write(f"  {journal_key} = {{{paper['venue']}}},\n")
+                    # Handle venue as string or list
+                    venue_value = paper['venue']
+                    if isinstance(venue_value, list):
+                        venue_str = ' '.join(str(v) for v in venue_value if v)
+                    else:
+                        venue_str = str(venue_value) if venue_value else ''
+                    if venue_str:
+                        f.write(f"  {journal_key} = {{{venue_str}}},\n")
 
                 if paper.get('doi') and paper['doi'] != 'N/A':
                     f.write(f"  doi = {{{paper['doi']}}},\n")
