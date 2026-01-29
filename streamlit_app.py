@@ -152,7 +152,7 @@ def render_api_key_input_section():
         **Always Available (No Key Needed):**
         - arXiv, PubMed, Crossref/DOI, OpenAlex
         - Europe PMC, PLOS, SSRN, DeepDyve
-        - Wiley, Taylor & Francis, ACM, DBLP
+        - Wiley, Taylor & Francis, ACM, DBLP, SAGE
         
         🔒 **Security Note:**
         - Keys stored in browser memory only
@@ -349,7 +349,7 @@ def get_available_engines(key_status):
     # ✅ NEW: 8 additional free engines
     available.extend([
         "Europe PMC", "PLOS", "SSRN", "DeepDyve",
-        "Wiley", "Taylor & Francis", "ACM Digital Library", "DBLP"
+        "Wiley", "Taylor & Francis", "ACM Digital Library", "DBLP", "SAGE Journals"  # ✅ Added SAGE
     ])
     
     # 📌 PLACEHOLDER: Add additional free engines here
@@ -402,10 +402,11 @@ def create_download_buttons(output_dir):
     files_to_download = {
         'MASTER_REPORT_FINAL.csv': ('CSV Report', 'text/csv', col1),
         'EXECUTIVE_SUMMARY.txt': ('Executive Summary', 'text/plain', col2),
-        'research_data.json': ('JSON Data', 'application/json', col3),
-        'references.bib': ('BibTeX', 'text/plain', col1),
-        'research_analytics.png': ('Analytics Chart', 'image/png', col2),
-        'SESSION_REPORT.txt': ('Session Report', 'text/plain', col3)
+        'RESEARCH_GAPS.txt': ('Research Gaps', 'text/plain', col3),  # ✅ NEW
+        'research_data.json': ('JSON Data', 'application/json', col1),
+        'references.bib': ('BibTeX', 'text/plain', col2),
+        'research_analytics.png': ('Analytics Chart', 'image/png', col3),
+        'SESSION_REPORT.txt': ('Session Report', 'text/plain', col1)
     }
     
     for filename, (label, mime_type, column) in files_to_download.items():
@@ -476,7 +477,7 @@ def main():
             "Crossref/DOI": "✅",
             "OpenAlex": "✅",
             
-            # ✅ NEW: Additional Free Engines (8 new)
+            # ✅ NEW: Additional Free Engines (9 new)
             "Europe PMC": "✅",
             "PLOS": "✅",
             "SSRN": "✅",
@@ -485,6 +486,7 @@ def main():
             "Taylor & Francis": "✅",
             "ACM Digital Library": "✅",
             "DBLP": "✅",
+            "SAGE Journals": "✅",  # ✅ NEW
             
             # 📌 PLACEHOLDER: Add additional free engines here
             # "DOAJ": "✅",
@@ -497,8 +499,8 @@ def main():
             else:
                 st.markdown(f"❌ {engine} *(no key)*")
         
-        # ✅ UPDATED: Total engine count (5 premium + 12 free = 17 engines)
-        st.info(f"**Active Engines:** {len(available_engines)}/17")
+        # ✅ UPDATED: Total engine count (5 premium + 13 free = 18 engines)
+        st.info(f"**Active Engines:** {len(available_engines)}/18")
         
         # Informational message
         if len(available_engines) < 8:
@@ -791,7 +793,7 @@ def main():
         SROrch is a powerful multi-engine academic literature search and analysis tool that aggregates 
         results from multiple scholarly databases to provide comprehensive research coverage.
         
-        #### 📚 Supported Databases (17 Engines!)
+        #### 📚 Supported Databases (18 Engines!)
         
         **Premium Engines (Require Your Own API Keys):**
         - **Semantic Scholar** - AI-powered academic search (FREE key available!)
@@ -817,11 +819,13 @@ def main():
         - **Taylor & Francis** - Academic publisher
         - **ACM Digital Library** - Computing literature
         - **DBLP** - Computer science bibliography
+        - **SAGE Journals** - Social sciences and humanities publisher
 
         #### ✨ Key Features
         - **Multi-source consensus detection** - Identifies papers found across multiple databases
         - **Intelligent relevance scoring** - Combines citations, source count, and recency
         - **Deep abstract fetching** - Retrieves full abstracts for top papers
+        - **Enhanced gap analysis** - Domain-specific research gap detection
         - **Publication analytics** - Generates trend visualizations and statistics
         - **Multiple export formats** - CSV, JSON, and BibTeX support
         - **Recency boosting** - Optional preference for recent publications
