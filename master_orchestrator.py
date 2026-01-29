@@ -198,7 +198,7 @@ class ResearchOrchestrator:
             if doi and doi.lower() != 'n/a':
                 try:
                     # ✨ ENHANCED: Request more fields including keywords and references
-                    url = f"https://api.semanticscholar.org/graph/v1/paper/DOI:{doi}?fields=abstract,url,title,tldr,fieldsOfStudy"
+                    url = f"https://api.semanticscholar.org/graph/v1/paper/DOI:{doi}?fields=abstract,url,title,tldr,s2FieldsOfStudy,publicationTypes"
                     r = requests.get(url, headers=headers, timeout=12)
                     if r.status_code == 200:
                         data = r.json()

@@ -7,17 +7,27 @@ def analyze_research_gaps(results):
     Returns a dictionary of found gaps and keyword frequency.
     """
     # 1. Phrases that explicitly signal a research gap
+    # Expanded patterns specifically for clinical and high-level academic gaps
     GAP_PATTERNS = [
-        r"(?:further|future) research (?:is|will be) (?:needed|required|necessary)",
-        r"(?:remains|is) poorly understood",
-        r"little (?:is known|research has been done)",
-        r"has (?:not|never) been (?:investigated|explored|studied)",
-        r"(?:lack|dearth) of (?:evidence|studies|data)",
-        r"conflicting (?:results|evidence|findings)",
-        r"unresolved issues",
-        r"the limitation(?:s)? of (?:this|the) study",
-        r"future work should focus on",
-        r"potential area for future investigation"
+        # Explicit Gaps
+        r"(?:further|future) (?:research|studies|investigations) (?:is|are|will be) (?:needed|required|warranted|necessary)",
+        r"(?:remains|is) (?:poorly|not fully|incompletely) (?:understood|defined|elucidated)",
+        r"(?:lack|dearth|scarcity) of (?:consensus|evidence|long-term data|prospective studies)",
+        
+        # Clinical/Medical Specific Gaps
+        r"optimal (?:management|treatment|therapy) (?:remains|is) (?:controversial|unknown|unclear)",
+        r"(?:randomized|controlled) trials (?:are|have not been) (?:lacking|conducted)",
+        r"standard (?:of care|protocols) (?:has|have) (?:not|yet) (?:to be|been) established",
+        
+        # Methodological Limitations
+        r"(?:small|limited) sample size",
+        r"retrospective (?:nature|design) (?:of the|of this) study",
+        r"results (?:should|must) be (?:interpreted|treated) with caution",
+        r"not (?:statistically significant|generalisable to|representative of)",
+        
+        # Direct Future Work
+        r"future (?:work|directions) (?:should|will) focus on",
+        r"area(?:s)? for (?:potential|future) (?:investigation|exploration)"
     ]
 
     found_gaps = []
