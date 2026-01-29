@@ -1,11 +1,44 @@
 import re
 from collections import Counter
 
+def get_ai_gap_patterns():
+    return [
+        # 1. Performance & Benchmark Gaps
+        r"(?:remains|is) (?:a challenge|an open problem|unsolved)",
+        r"(?:fails|struggles) to (?:generalize|capture|scale)",
+        r"(?:performance|accuracy) (?:degrades|drops|plateaus) (?:when|at)",
+        r"unable to (?:reach|achieve|match) (?:human-level|SOTA|state-of-the-art)",
+        r"saturated (?:benchmarks|datasets)",
+
+        # 2. Computational & Efficiency Gaps (Common in AI)
+        r"computationally (?:expensive|prohibitive|demanding)",
+        r"limited by (?:hardware|GPU|memory|VRAM)",
+        r"high (?:inference|training) cost",
+        r"lack of (?:energy-efficient|real-time) (?:implementation|processing)",
+
+        # 3. Data & Robustness Gaps
+        r"data (?:scarcity|sparsity|imbalance)",
+        r"dependence on (?:large-scale|labeled|curated) datasets",
+        r"(?:vulnerable|susceptible) to (?:adversarial|noise|out-of-distribution)",
+        r"black-box (?:nature|model)",
+        r"lack of (?:interpretability|explainability|transparency)",
+
+        # 4. Societal & Ethical Gaps (SAGE/SSRN patterns)
+        r"(?:inherent|algorithmic) bias",
+        r"ethical (?:implications|concerns|dilemmas)",
+        r"long-term (?:impacts|consequences) (?:remain|are) (?:unknown|unexplored)",
+        r"lack of (?:policy|regulatory|governance) frameworks"
+    ]
+
 def analyze_research_gaps(results):
     """
     Analyzes top papers for explicit research gaps and emerging trends.
     Returns a dictionary of found gaps and keyword frequency.
     """
+    patterns = GAP_PATTERNS # Your current list
+    if any(tech_term in query.lower() for tech_term in ["ai", "machine learning", "deep learning", "algorithm"]):
+        patterns += get_ai_gap_patterns()
+        
     # 1. Phrases that explicitly signal a research gap
     # Expanded patterns specifically for clinical and high-level academic gaps
     GAP_PATTERNS = [
@@ -27,34 +60,7 @@ def analyze_research_gaps(results):
         
         # Direct Future Work
         r"future (?:work|directions) (?:should|will) focus on",
-        r"area(?:s)? for (?:potential|future) (?:investigation|exploration)",
-
-        # Performance & Benchmark Gaps
-        r"(?:remains|is) (?:a challenge|an open problem|unsolved)",
-        r"(?:fails|struggles) to (?:generalize|capture|scale)",
-        r"(?:performance|accuracy) (?:degrades|drops|plateaus) (?:when|at)",
-        r"unable to (?:reach|achieve|match) (?:human-level|SOTA|state-of-the-art)",
-        r"saturated (?:benchmarks|datasets)",
-
-        # Computational & Efficiency Gaps (Common in AI)
-        r"computationally (?:expensive|prohibitive|demanding)",
-        r"limited by (?:hardware|GPU|memory|VRAM)",
-        r"high (?:inference|training) cost",
-        r"lack of (?:energy-efficient|real-time) (?:implementation|processing)",
-
-        # Data & Robustness Gaps
-        r"data (?:scarcity|sparsity|imbalance)",
-        r"dependence on (?:large-scale|labeled|curated) datasets",
-        r"(?:vulnerable|susceptible) to (?:adversarial|noise|out-of-distribution)",
-        r"black-box (?:nature|model)",
-        r"lack of (?:interpretability|explainability|transparency)",
-
-        # Societal & Ethical Gaps (SAGE/SSRN patterns)
-        r"(?:inherent|algorithmic) bias",
-        r"ethical (?:implications|concerns|dilemmas)",
-        r"long-term (?:impacts|consequences) (?:remain|are) (?:unknown|unexplored)",
-        r"lack of (?:policy|regulatory|governance) frameworks"
-
+        r"area(?:s)? for (?:potential|future) (?:investigation|exploration)"
     ]
 
     found_gaps = []
