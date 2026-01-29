@@ -687,7 +687,7 @@ class ResearchOrchestrator:
         top_abstract_blocks = self.fetch_abstracts_for_top_papers(results)
 
         # ✨ NEW: Identify Research Gaps
-        print("\n🔍 Scanning for Research Gaps and Future Directions...")
+        #print("\n🔍 Scanning for Research Gaps and Future Directions...")
         gap_data = analyze_research_gaps(results)
         
         # Save to a dedicated Gap Report
