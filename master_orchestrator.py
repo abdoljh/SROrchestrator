@@ -8,7 +8,7 @@ import shutil
 import json  # ✨ NEW: For configuration export
 import concurrent.futures
 from datetime import datetime
-from dotenv import load_dotenv
+#from dotenv import load_dotenv
 from typing import List, Dict, Optional  # ✨ NEW: Type hints for better code quality
 
 # Import your tools
@@ -45,6 +45,7 @@ import dblp_utils
 
 # ✅ NEW: Identify Research Gaps
 import gap_utils
+from gap_utils import analyze_research_gaps
 
 load_dotenv()
 
