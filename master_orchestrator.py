@@ -32,6 +32,10 @@ import tf_utils
 import acm_utils
 import dblp_utils
 
+# ✅ NEW: Research Gap Analysis
+import gap_utils
+from gap_utils import analyze_research_gaps
+
 # ✅ NEW: Additional search engines (9 new utilities)
 import europe_pmc_utils
 import plos_utils
@@ -42,10 +46,6 @@ import wiley_utils
 import tf_utils
 import acm_utils
 import dblp_utils
-
-# ✅ NEW: Identify Research Gaps
-import gap_utils
-from gap_utils import analyze_research_gaps
 
 load_dotenv()
 
@@ -686,18 +686,48 @@ class ResearchOrchestrator:
         # 1. Trigger Deep Look
         top_abstract_blocks = self.fetch_abstracts_for_top_papers(results)
 
-        # ✨ NEW: Identify Research Gaps
-        #print("\n🔍 Scanning for Research Gaps and Future Directions...")
+        # ✅ NEW: Identify Research Gaps (after abstracts are fetched)
+        print("\n🔍 Scanning for Research Gaps and Future Directions...")
         gap_data = analyze_research_gaps(results)
         
         # Save to a dedicated Gap Report
         gap_report_path = os.path.join(self.output_dir, "RESEARCH_GAPS.txt")
         with open(gap_report_path, 'w', encoding='utf-8') as f:
-            f.write(f"=== IDENTIFIED RESEARCH GAPS: {query} ===\n\n")
-            for gap in gap_data['gap_list']:
-                f.write(f"SOURCE: {gap['title']} ({gap['year']})\n")
-                f.write(f"GAP SIGNAL: \"...{gap['gap_statement']}...\"\n")
-                f.write("-" * 40 + "\n")
+            f.write(f"=== IDENTIFIED RESEARCH GAPS & FUTURE DIRECTIONS ===\n")
+            f.write(f"QUERY: {query}\n")
+            f.write(f"DATE: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write("="*60 + "\n\n")
+            
+            f.write(f"SUMMARY:\n")
+            f.write(f"  Total gaps found: {gap_data['total_gaps_found']}\n")
+            f.write(f"  Papers analyzed: {len([p for p in results if p.get('abstract') or p.get('tldr')])}\n")
+            f.write(f"  Top keywords: {', '.join([k for k, count in gap_data['top_keywords'][:5]])}\n")
+            f.write("\n" + "="*60 + "\n\n")
+            
+            if gap_data['gap_list']:
+                f.write("DETAILED GAP STATEMENTS:\n")
+                f.write("="*60 + "\n\n")
+                for i, gap in enumerate(gap_data['gap_list'], 1):
+                    f.write(f"[{i}] SOURCE: {gap['title']} ({gap['year']})\n")
+                    f.write(f"    GAP SIGNAL: \"{gap['gap_statement']}\"\n")
+                    f.write("-" * 60 + "\n\n")
+            else:
+                f.write("No explicit research gap statements found in the analyzed papers.\n")
+                f.write("This may indicate:\n")
+                f.write("  - Papers don't have abstracts available\n")
+                f.write("  - Gap statements use different phrasing\n")
+                f.write("  - Field is well-established with fewer open questions\n\n")
+            
+            # ✅ NEW: Add keyword analysis section
+            if gap_data['top_keywords']:
+                f.write("\n" + "="*60 + "\n")
+                f.write("TOP RESEARCH KEYWORDS (Emerging Themes):\n")
+                f.write("="*60 + "\n\n")
+                for keyword, count in gap_data['top_keywords']:
+                    f.write(f"  • {keyword.title()} (appears in {count} papers)\n")
+        
+        print(f"📋 Research gaps report saved: RESEARCH_GAPS.txt")
+        print(f"   Found {gap_data['total_gaps_found']} explicit gap statements")
         
         # 2. Save CSV (Keys include 'abstract' and new fields)
         csv_filename = os.path.join(self.output_dir, "MASTER_REPORT_FINAL.csv")
