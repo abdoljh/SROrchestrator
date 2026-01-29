@@ -27,7 +27,7 @@ def analyze_research_gaps(results):
         
         # Direct Future Work
         r"future (?:work|directions) (?:should|will) focus on",
-        r"area(?:s)? for (?:potential|future) (?:investigation|exploration)"
+        r"area(?:s)? for (?:potential|future) (?:investigation|exploration)",
 
         # Performance & Benchmark Gaps
         r"(?:remains|is) (?:a challenge|an open problem|unsolved)",
