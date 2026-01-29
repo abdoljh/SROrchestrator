@@ -161,9 +161,9 @@ def render_api_key_input_section():
         - Each user uses their own keys
         """)
         
-        # =============================================================================
+        # =======================================
         # CURRENT PREMIUM ENGINES
-        # =============================================================================
+        # =======================================
         
         # API Key Inputs
         s2_key = st.text_input(
@@ -212,9 +212,10 @@ def render_api_key_input_section():
             placeholder="Enter your Springer API key"
         )
         
-        # =============================================================================
+        # =======================================
         # 📌 PLACEHOLDER: Add new premium engine inputs here
-        # =============================================================================
+        # =======================================
+
         # Template for adding a new premium engine:
         # new_engine_key = st.text_input(
         #     "New Engine API Key",
@@ -244,7 +245,7 @@ def render_api_key_input_section():
         #     key="wos_input_widget",
         #     placeholder="Enter your WoS API key"
         # )
-        # =============================================================================
+        # =======================================
         
         email = st.text_input(
             "Your Email",
