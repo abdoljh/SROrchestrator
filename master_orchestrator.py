@@ -199,7 +199,7 @@ class ResearchOrchestrator:
             if paper.get('keywords'):
                 summary_block += f"KEYWORDS: {paper['keywords']}\n"
 
-            summary_block += f"ABSTRACT: {paper['abstract']}\n{'-'*50}\n"
+            summary_block += f"ABSTRACT: {paper['abstract']}\n{'-'*48}\n"
             abstract_summaries.append(summary_block)
 
         return abstract_summaries
@@ -281,9 +281,9 @@ class ResearchOrchestrator:
 
                 plt.close()
 
-            print("\n" + "="*50)
+            print("\n" + "="*48)
             print(f"       RESEARCH METRICS SUMMARY")
-            print("="*50)
+            print("="*48)
             print(f"Total Unique Papers Discovered: {total_papers}")
             print(f"High-Consensus Papers (≥{self.config['high_consensus_threshold']} sources): {high_consensus_papers}")
             print(f"Recent Papers (last {self.config['recency_years']} years): {recent_papers}")
@@ -297,7 +297,7 @@ class ResearchOrchestrator:
             for count, freq in sorted(source_counts.items(), reverse=True):
                 percentage = (freq / total_papers) * 100
                 print(f"  - Found in {count} engine(s): {freq} papers ({percentage:.1f}%)")
-            print("="*50 + "\n")
+            print("="*48 + "\n")
 
         except Exception as e:
             print(f"⚠️ Statistics generation failed: {e}")
@@ -502,9 +502,9 @@ class ResearchOrchestrator:
         report_path = os.path.join(self.output_dir, "SESSION_REPORT.txt")
 
         with open(report_path, 'w', encoding='utf-8') as f:
-            f.write("="*50 + "\n")
+            f.write("="*48 + "\n")
             f.write("          SROrch SESSION REPORT\n")
-            f.write("="*50 + "\n\n")
+            f.write("="*48 + "\n\n")
 
             f.write(f"Query: {self.session_metadata['query']}\n")
             f.write(f"Start Time: {self.session_metadata['start_time']}\n")
@@ -520,13 +520,13 @@ class ResearchOrchestrator:
             if self.session_metadata['failed_engines']:
                 f.write(f"Failed Engines: {', '.join(self.session_metadata['failed_engines'])}\n")
 
-            f.write("\n" + "="*50 + "\n")
+            f.write("\n" + "="*48 + "\n")
             f.write("CONFIGURATION USED:\n")
-            f.write("="*50 + "\n")
+            f.write("="*48 + "\n")
             for key, value in self.config.items():
                 f.write(f"{key}: {value}\n")
 
-            f.write("\n" + "="*50 + "\n")
+            f.write("\n" + "="*48 + "\n")
 
         print(f"📋 Session report saved as: SESSION_REPORT.txt")
 
@@ -544,26 +544,26 @@ class ResearchOrchestrator:
             f.write(f"=== IDENTIFIED RESEARCH GAPS & FUTURE DIRECTIONS ===\n")
             f.write(f"QUERY: {query}\n")
             f.write(f"DATE: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write("="*50 + "\n\n")
+            f.write("="*48 + "\n\n")
             
             f.write(f"SUMMARY:\n")
             f.write(f"  Total gaps found: {gap_data['total_gaps_found']}\n")
             f.write(f"  Papers analyzed: {gap_data['papers_analyzed']}\n")
             f.write(f"  Pattern types used: {', '.join(gap_data['pattern_types_used'])}\n")
             f.write(f"  Top keywords: {', '.join([k for k, count in gap_data['top_keywords'][:5]])}\n")
-            f.write("\n" + "="*50 + "\n\n")
+            f.write("\n" + "="*48 + "\n\n")
             
             # ✅ NEW: Gap Categories
             if gap_data.get('gap_categories'):
                 f.write("GAP CATEGORIES:\n")
-                f.write("="*50 + "\n")
+                f.write("="*48 + "\n")
                 for category, count in sorted(gap_data['gap_categories'].items(), key=lambda x: x[1], reverse=True):
                     f.write(f"  • {category}: {count} gaps\n")
-                f.write("\n" + "="*50 + "\n\n")
+                f.write("\n" + "="*48 + "\n\n")
             
             if gap_data['gap_list']:
                 f.write("DETAILED GAP STATEMENTS (Sorted by Citation Impact):\n")
-                f.write("="*50 + "\n\n")
+                f.write("="*48 + "\n\n")
                 for i, gap in enumerate(gap_data['gap_list'], 1):
                     f.write(f"[{i}] SOURCE: {gap['title']} ({gap['year']})\n")
                     f.write(f"    CATEGORY: {gap['category']}\n")
@@ -579,9 +579,9 @@ class ResearchOrchestrator:
             
             # Keyword analysis
             if gap_data['top_keywords']:
-                f.write("\n" + "="*50 + "\n")
+                f.write("\n" + "="*48 + "\n")
                 f.write("TOP RESEARCH KEYWORDS (Emerging Themes):\n")
-                f.write("="*50 + "\n\n")
+                f.write("="*48 + "\n\n")
                 for keyword, count in gap_data['top_keywords']:
                     f.write(f"  • {keyword.title()} (appears in {count} papers)\n")
         
