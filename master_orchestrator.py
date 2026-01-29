@@ -43,6 +43,9 @@ import tf_utils
 import acm_utils
 import dblp_utils
 
+# ✅ NEW: Identify Research Gaps
+import gap_utils
+
 load_dotenv()
 
 class ResearchOrchestrator:
@@ -678,10 +681,23 @@ class ResearchOrchestrator:
         print(f"📋 Session report saved as: SESSION_REPORT.txt")
 
     def save_master_csv(self, results, query):
-        """Final execution step: Enriches data, saves CSV/Summary, and generates statistics."""
+        """Final execution step: Enriches data, identifies research gaps, saves CSV/Summary, and generates statistics."""
         # 1. Trigger Deep Look
         top_abstract_blocks = self.fetch_abstracts_for_top_papers(results)
 
+        # ✨ NEW: Identify Research Gaps
+        print("\n🔍 Scanning for Research Gaps and Future Directions...")
+        gap_data = analyze_research_gaps(results)
+        
+        # Save to a dedicated Gap Report
+        gap_report_path = os.path.join(self.output_dir, "RESEARCH_GAPS.txt")
+        with open(gap_report_path, 'w', encoding='utf-8') as f:
+            f.write(f"=== IDENTIFIED RESEARCH GAPS: {query} ===\n\n")
+            for gap in gap_data['gap_list']:
+                f.write(f"SOURCE: {gap['title']} ({gap['year']})\n")
+                f.write(f"GAP SIGNAL: \"...{gap['gap_statement']}...\"\n")
+                f.write("-" * 40 + "\n")
+        
         # 2. Save CSV (Keys include 'abstract' and new fields)
         csv_filename = os.path.join(self.output_dir, "MASTER_REPORT_FINAL.csv")
         keys = ['relevance_score', 'source_count', 'ieee_authors', 'title', 'venue', 'year',
