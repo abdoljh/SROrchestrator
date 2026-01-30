@@ -3,9 +3,9 @@ from collections import Counter, defaultdict
 from typing import List, Dict, Tuple, Set
 import math
 
-# ============================================================
+# ==================================================
 # 1. ENHANCED PATTERN LIBRARIES WITH CONTEXTUAL AWARENESS
-# ============================================================
+# ==================================================
 
 def get_ai_gap_patterns():
     """Enhanced patterns for Technical, AI, and Engineering gaps."""
@@ -146,9 +146,9 @@ def get_emerging_gap_patterns():
         r"integration of .{1,40} with .{1,40} (?:remains|is) (?:limited|underexplored)": "Integration Gap"
     }
 
-# ============================================================
+# ==================================================
 # 2. ADVANCED SENTENCE ANALYSIS WITH CONTEXT
-# ============================================================
+# ==================================================
 
 class GapSentenceAnalyzer:
     """Analyzes sentences for gap indicators with contextual awareness."""
@@ -267,9 +267,9 @@ class GapSentenceAnalyzer:
         return round(max(0.0, min(1.0, score)), 2)
 
 
-# ============================================================
+# ==================================================
 # 3. SEMANTIC SIMILARITY & CLUSTERING
-# ============================================================
+# ==================================================
 
 def calculate_semantic_similarity(gap1: str, gap2: str) -> float:
     """
@@ -368,9 +368,9 @@ def cluster_similar_gaps(gaps: List[Dict], similarity_threshold: float = 0.6) ->
     return representatives
 
 
-# ============================================================
+# ==================================================
 # 4. ENHANCED MAIN ANALYSIS FUNCTION
-# ============================================================
+# ==================================================
 
 def analyze_research_gaps(results, query="", min_confidence=0.3):
     """
@@ -608,9 +608,9 @@ def extract_subcategories(gaps: List[Dict]) -> Dict[str, int]:
     return dict(subcat_counts)
 
 
-# ============================================================
+# ==================================================
 # 5. ENHANCED STATISTICS & REPORTING
-# ============================================================
+# ==================================================
 
 def generate_gap_summary_stats(gap_data: Dict) -> Dict:
     """Generate comprehensive statistical summary."""
