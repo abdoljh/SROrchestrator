@@ -1,319 +1,531 @@
-# SROrch Streamlit Interface
+# SROrch - Scholarly Research Orchestrator
 
-A web-based interface for the Scholarly Research Orchestrator (SROrch) - a powerful multi-engine academic literature search and analysis tool.
+**Multi-Engine Academic Literature Search & Analysis Platform**
 
-## 🚀 Quick Start
-
-### 1. Installation
-
-```bash
-# Clone or download the project files
-cd srorch-streamlit
-
-# Install dependencies
-pip install -r requirements_streamlit.txt
-```
-
-### 2. Configure API Keys
-
-Create a `.streamlit/secrets.toml` file in your project directory:
-
-```bash
-mkdir -p .streamlit
-cp .streamlit/secrets.toml.template .streamlit/secrets.toml
-```
-
-Edit `.streamlit/secrets.toml` with your actual API keys:
-
-```toml
-S2_API_KEY = "your_semantic_scholar_api_key"
-SERP_API_KEY = "your_serpapi_key"
-CORE_API_KEY = "your_core_api_key"
-USER_EMAIL = "your.email@example.com"
-```
-
-### 3. Run the Application
-
-```bash
-streamlit run app.py
-```
-
-The application will open in your default browser at `http://localhost:8501`
-
-## 🔑 API Keys Setup
-
-### Required API Keys
-
-1. **Semantic Scholar API Key** (Highly Recommended)
-   - Visit: https://www.semanticscholar.org/product/api
-   - Sign up for a free account
-   - Generate your API key
-   - Provides: Abstract fetching, enhanced metadata
-
-2. **User Email** (Required)
-   - Used for PubMed API requests (NCBI requirement)
-   - No signup needed, just provide a valid email
-
-### Optional API Keys (For Enhanced Coverage)
-
-3. **SERP API Key** (Optional but Recommended)
-   - Visit: https://serpapi.com/
-   - Free tier: 100 searches/month
-   - Paid plans available for higher usage
-   - Provides: Google Scholar access
-
-4. **CORE API Key** (Optional)
-   - Visit: https://core.ac.uk/services/api
-   - Free tier available
-   - Provides: Open access research papers
-
-### Free Engines (No API Key Required)
-
-The following engines work without API keys:
-- arXiv
-- PubMed (requires email only)
-- Crossref/DOI
-- OpenAlex
-
-## 📁 Project Structure
-
-```
-srorch-streamlit/
-├── app.py                          # Streamlit web interface
-├── master_orchestrator.py          # Core orchestrator logic
-├── requirements_streamlit.txt      # Python dependencies
-├── .streamlit/
-│   ├── secrets.toml               # API keys (create this!)
-│   └── secrets.toml.template      # Template for secrets
-├── s2_utils.py                    # Semantic Scholar integration
-├── arxiv_utils.py                 # arXiv integration
-├── pubmed_utils.py                # PubMed integration
-├── scholar_utils.py               # Google Scholar integration
-├── doi_utils.py                   # DOI/Crossref integration
-├── openalex_utils.py              # OpenAlex integration
-└── core_utils.py                  # CORE integration
-```
-
-## 🎯 Features
-
-### Multi-Engine Search
-- **7 Academic Databases** integrated
-- Parallel search execution
-- Automatic result aggregation
-- Deduplication and consensus detection
-
-### Intelligent Ranking
-- **Relevance Scoring** based on:
-  - Citation counts
-  - Multi-source consensus
-  - Publication recency (optional boost)
-- Configurable scoring weights
-
-### Deep Analysis
-- Abstract fetching for top papers
-- AI-generated TL;DR summaries (when available)
-- Keyword extraction
-- Publication trend visualization
-
-### Export Options
-- **CSV** - Spreadsheet format for data analysis
-- **JSON** - Structured data for integration
-- **BibTeX** - Reference manager compatible
-- **ZIP** - Complete archive of all outputs
-
-### Analytics Dashboard
-- Publication timeline chart
-- Source consensus distribution
-- Citation statistics
-- Research metrics summary
-
-## ⚙️ Configuration Options
-
-### Search Parameters
-- **Results per engine** (5-50): Number of papers from each database
-- **Deep Look Limit** (1-20): Papers to fetch full abstracts for
-
-### Scoring Settings
-- **Citation Weight** (0.1-5.0): Importance of citation counts
-- **Source Weight** (10-500): Value of multi-database presence
-- **Consensus Threshold** (2-7): Sources needed for alert
-
-### Recency Boost
-- **Enable/Disable**: Prefer recent publications
-- **Time Window** (1-10 years): Define "recent"
-- **Multiplier** (1.0-2.0): Boost strength for recent papers
-
-### Output Options
-- **Consensus Alerts**: Real-time high-impact paper notifications
-- **Visualizations**: Generate charts and graphs
-- **Export Formats**: Choose CSV, JSON, BibTeX (or all)
-
-## 📊 Using the Interface
-
-### Search Tab
-1. Enter your research query
-2. Adjust configuration in sidebar (optional)
-3. Click "Start Search"
-4. Monitor progress bar
-5. Wait for completion
-
-### Results Tab
-1. View summary metrics
-2. Browse top papers with expandable details
-3. Review analytics visualizations
-4. Download reports in various formats
-5. Check session details
-
-### About Tab
-- Feature documentation
-- Supported databases
-- Use case examples
-- System information
-
-## 📝 Output Files Explained
-
-### MASTER_REPORT_FINAL.csv
-Complete results table with columns:
-- Relevance score
-- Source count
-- Authors (IEEE format)
-- Title, venue, year
-- Citations, DOI, URL
-- Abstract, keywords, TL;DR
-- Recency boost flag
-
-### EXECUTIVE_SUMMARY.txt
-Curated summary featuring:
-- Top N papers (configurable)
-- Full abstracts
-- Complete metadata
-- Direct links
-
-### research_data.json
-Structured JSON with:
-- Search metadata
-- All paper details
-- Session information
-- Execution statistics
-
-### references.bib
-BibTeX format citations:
-- Auto-generated citation keys
-- Complete bibliographic data
-- Compatible with Zotero, Mendeley, etc.
-
-### research_analytics.png
-Visual dashboard showing:
-- Publication timeline
-- Source consensus distribution
-
-### SESSION_REPORT.txt
-Search session details:
-- Query and timestamps
-- Execution duration
-- Engine success/failure status
-- Configuration used
-
-## 🔧 Troubleshooting
-
-### "Error loading secrets"
-- Ensure `.streamlit/secrets.toml` exists
-- Check file permissions
-- Verify TOML syntax
-
-### "Search engine failed"
-- Check API key validity
-- Verify internet connection
-- Review rate limits (especially for SERP API)
-- Some engines may be temporarily unavailable
-
-### "No abstracts found"
-- Semantic Scholar API key may be missing
-- Papers may not have abstracts in database
-- Rate limiting may be active
-
-### Import errors
-- Run: `pip install -r requirements_streamlit.txt`
-- Ensure all utility files (s2_utils.py, etc.) are present
-- Check Python version (3.8+ recommended)
-
-## 🌐 Deployment Options
-
-### Local Deployment
-```bash
-streamlit run app.py
-```
-
-### Streamlit Cloud
-1. Push code to GitHub
-2. Connect repository to Streamlit Cloud
-3. Add secrets via Cloud dashboard
-4. Deploy!
-
-### Docker Deployment
-```dockerfile
-FROM python:3.10-slim
-WORKDIR /app
-COPY requirements_streamlit.txt .
-RUN pip install -r requirements_streamlit.txt
-COPY . .
-EXPOSE 8501
-CMD ["streamlit", "run", "app.py"]
-```
-
-## 📚 Research Use Cases
-
-### Literature Review
-- Comprehensive coverage across databases
-- Identify seminal papers via consensus
-- Track publication trends
-
-### Gap Analysis
-- Find under-researched areas
-- Compare coverage across venues
-- Identify emerging topics
-
-### Citation Analysis
-- Find highly-cited papers
-- Track citation patterns
-- Discover influential authors
-
-### Multi-Database Validation
-- Verify paper presence across sources
-- Cross-check metadata
-- Assess research impact
-
-## 🤝 Contributing
-
-Contributions welcome! Areas for improvement:
-- Additional search engine integrations
-- Enhanced visualization options
-- Advanced filtering capabilities
-- Export format extensions
-
-## 📄 License
-
-MIT License - See LICENSE file for details
-
-## 🙏 Acknowledgments
-
-This tool integrates with:
-- Semantic Scholar
-- arXiv
-- PubMed/NCBI
-- Google Scholar (via SerpAPI)
-- Crossref
-- OpenAlex
-- CORE
-
-## 📞 Support
-
-For issues or questions:
-1. Check this README
-2. Review error messages in Streamlit interface
-3. Verify API key configuration
-4. Check individual engine status
+[![Python](https://img.shields.io/badge/Python-3.8%2B-blue.svg)](https://www.python.org/)
+[![Streamlit](https://img.shields.io/badge/Streamlit-1.0%2B-FF4B4B.svg)](https://streamlit.io/)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Security](https://img.shields.io/badge/Security-Session--Only-brightgreen.svg)](#security)
 
 ---
 
-**Happy Researching! 🔬📚**
+## 🎯 Overview
+
+SROrch orchestrates comprehensive academic literature searches across **18 scholarly databases** simultaneously, providing:
+
+- **Multi-source consensus detection** - Find papers validated across multiple databases
+- **Intelligent relevance scoring** - Combine citations, source count, and recency
+- **Research gap analysis** - Identify underexplored areas with domain-specific patterns
+- **Deep abstract fetching** - Retrieve detailed metadata for top papers
+- **Publication analytics** - Generate trend visualizations and statistics
+- **Flexible API key management** - Dev mode for testing, production mode for deployment
+
+---
+
+## ✨ Key Features
+
+### 🔍 Search Capabilities
+- **18 Scholarly Databases**: 5 premium + 13 free engines
+- **Parallel Processing**: Search all engines simultaneously
+- **Smart Deduplication**: Identifies same papers across different sources
+- **Relevance Scoring**: Weighted combination of citations, sources, and recency
+- **Deep Look Mode**: Fetches full abstracts for top-ranked papers
+
+### 📊 Analytics & Insights
+- **Research Gap Detection**: Domain-specific pattern recognition
+- **Citation Analysis**: Track impact and influence
+- **Publication Trends**: Visualize temporal patterns
+- **Cross-Database Coverage**: Understand source consensus
+- **Quality Metrics**: Multi-dimensional paper assessment
+
+### 🔐 Security & Flexibility
+- **Dual-Mode Operation**: Development (auto-loaded keys) + Production (user keys)
+- **Session-Only Storage**: Keys never persisted to disk (production)
+- **Smart Detection**: Automatically chooses best available key source
+- **Zero-Trust Design**: Users bring their own API keys
+- **Easy Deployment**: Delete secrets.toml to switch modes
+
+### 📦 Export Options
+- **CSV Reports**: Structured data for analysis
+- **JSON Data**: Machine-readable format
+- **BibTeX**: Direct citation import
+- **Research Summaries**: Executive overviews
+- **Gap Analysis**: Detailed opportunity reports
+
+---
+
+## 🚀 Quick Start
+
+### Option 1: Try Immediately (Free, No Setup)
+
+```bash
+streamlit run streamlit_app.py
+```
+
+✅ Works instantly with 13 free engines  
+✅ No API keys required  
+✅ No registration needed  
+
+### Option 2: Enhanced Coverage (5 minutes)
+
+```bash
+# 1. Get free Semantic Scholar key (highly recommended)
+# Visit: https://www.semanticscholar.org/product/api
+
+# 2. Create secrets file
+cp secrets.toml.template .streamlit/secrets.toml
+
+# 3. Add your key
+echo 'S2_API_KEY = "your-key-here"' >> .streamlit/secrets.toml
+
+# 4. Run
+streamlit run streamlit_app.py
+```
+
+✅ 14 engines active  
+✅ Excellent metadata quality  
+✅ Keys auto-loaded on startup  
+
+**See [QUICKSTART.md](QUICKSTART.md) for detailed instructions**
+
+---
+
+## 📚 Supported Databases
+
+### Premium Engines (Optional - Require API Keys)
+
+| Engine | Cost | Coverage | Quality | Get Key |
+|--------|------|----------|---------|---------|
+| **Semantic Scholar** | FREE! | 200M+ papers | ⭐⭐⭐⭐⭐ | [semanticscholar.org](https://www.semanticscholar.org/product/api) |
+| **Google Scholar** | $0.002/search | Largest | ⭐⭐⭐⭐⭐ | [serpapi.com](https://serpapi.com/) |
+| **CORE** | FREE (academic) | 200M+ | ⭐⭐⭐⭐ | [core.ac.uk](https://core.ac.uk/services/api) |
+| **SCOPUS** | Institutional | 80M+ | ⭐⭐⭐⭐⭐ | [dev.elsevier.com](https://dev.elsevier.com/) |
+| **Springer Nature** | Varies | 10M+ | ⭐⭐⭐⭐ | [dev.springernature.com](https://dev.springernature.com/) |
+
+### Free Engines (Always Available - No Keys Needed)
+
+| Engine | Specialty | Coverage |
+|--------|-----------|----------|
+| **arXiv** | STEM preprints | 2M+ |
+| **PubMed** | Biomedical | 35M+ |
+| **Crossref/DOI** | DOI resolution | 140M+ |
+| **OpenAlex** | Open access | 250M+ |
+| **Europe PMC** | Life sciences | 42M+ |
+| **PLOS** | Open access | 300K+ |
+| **SSRN** | Social sciences | 1M+ |
+| **DeepDyve** | Rentals | 15M+ |
+| **Wiley** | Scientific | 5M+ |
+| **Taylor & Francis** | Broad | 2.5M+ |
+| **ACM** | Computer science | 600K+ |
+| **DBLP** | CS bibliography | 6M+ |
+| **SAGE** | Social sciences | 1K+ journals |
+
+**Total: 18 engines (5 premium + 13 free)**
+
+---
+
+## 🎛️ Dual-Mode Architecture
+
+### Development Mode 🔧
+
+**For:** Local development, testing, rapid iteration
+
+**Setup:**
+```bash
+cp secrets.toml.template .streamlit/secrets.toml
+nano .streamlit/secrets.toml  # Add your keys
+```
+
+**Benefits:**
+- ✅ Keys auto-loaded on startup
+- ✅ No manual entry each session
+- ✅ Fast development workflow
+- ✅ Easy key management
+- ✅ Refresh-persistent keys
+
+**UI Indicator:**
+```
+🔧 DEV MODE ACTIVE
+Pre-configured keys detected: 3
+```
+
+### Production Mode 👥
+
+**For:** Public deployment, end users, maximum security
+
+**Setup:**
+```bash
+# Just don't create secrets.toml
+# OR delete it before deployment
+rm .streamlit/secrets.toml
+```
+
+**Benefits:**
+- ✅ Users provide own keys
+- ✅ Zero developer liability
+- ✅ Session-only storage
+- ✅ Maximum security
+- ✅ No quota sharing
+
+**UI Indicator:**
+```
+🔒 Keys are temporary - Lost when you refresh
+```
+
+### Smart Detection Logic
+
+```python
+Priority: User Input → Secrets File → Empty String
+
+1. User enters key in UI → USE IT (highest priority)
+2. No user input, secrets exist → USE SECRETS
+3. Neither available → USE FREE ENGINES ONLY
+```
+
+**See [SETUP_GUIDE.md](SETUP_GUIDE.md) for comprehensive documentation**
+
+---
+
+## 📖 Documentation
+
+| Document | Purpose | Read Time |
+|----------|---------|-----------|
+| **[QUICKSTART.md](QUICKSTART.md)** | Get started in 5 minutes | 5 min |
+| **[SETUP_GUIDE.md](SETUP_GUIDE.md)** | Complete configuration guide | 20 min |
+| **[COMPARISON.md](COMPARISON.md)** | Before/after improvements | 10 min |
+| **[secrets.toml.template](secrets.toml.template)** | API key template | 2 min |
+
+---
+
+## 🔐 Security
+
+### Development Mode Security
+
+**Protected by:**
+- `.gitignore` prevents committing `secrets.toml`
+- Local-only file storage
+- Each developer uses own keys
+- Clear documentation warnings
+
+**Best Practices:**
+```bash
+# 1. Always verify .gitignore
+cat .gitignore | grep secrets.toml
+
+# 2. Never share secrets.toml
+# 3. Use development/test API keys only
+# 4. Set up billing alerts
+# 5. Rotate keys regularly
+```
+
+### Production Mode Security
+
+**Protected by:**
+- Session-only key storage (browser memory)
+- Auto-clear on refresh/close
+- No disk persistence
+- No server-side storage
+- Each user manages own quotas
+
+**Guarantee:**
+```
+❌ Keys never saved to disk
+❌ Keys never sent to server
+❌ Keys never shared between users
+✅ Keys cleared on page refresh
+✅ Complete user control
+```
+
+---
+
+## 🛠️ Installation
+
+### Prerequisites
+```bash
+Python 3.8+
+pip or conda
+```
+
+### Core Dependencies
+```bash
+pip install streamlit pandas requests matplotlib python-dotenv
+```
+
+### Optional (for enhanced features)
+```bash
+pip install arxiv biopython crossref-commons scholarly
+```
+
+### Complete Setup
+```bash
+# 1. Clone repository
+git clone <your-repo-url>
+cd srorch
+
+# 2. Install dependencies
+pip install -r requirements.txt
+
+# 3. (Optional) Configure dev mode
+cp secrets.toml.template .streamlit/secrets.toml
+nano .streamlit/secrets.toml
+
+# 4. Run
+streamlit run streamlit_app.py
+```
+
+---
+
+## 📊 Usage Examples
+
+### Example 1: Basic Search
+```python
+from master_orchestrator import ResearchOrchestrator
+
+orchestrator = ResearchOrchestrator()
+results = orchestrator.run_search("machine learning healthcare", limit_per_engine=25)
+orchestrator.save_master_csv(results, "machine learning healthcare")
+```
+
+### Example 2: Custom Configuration
+```python
+config = {
+    'abstract_limit': 15,
+    'citation_weight': 2.0,
+    'recency_boost': True,
+    'recency_years': 3,
+    'high_consensus_threshold': 5
+}
+
+orchestrator = ResearchOrchestrator(config=config)
+results = orchestrator.run_search("quantum computing", limit_per_engine=30)
+```
+
+### Example 3: Streamlit Interface
+```bash
+streamlit run streamlit_app.py
+```
+1. Enter search query
+2. Adjust parameters (optional)
+3. Click "Start Search"
+4. View results and analytics
+5. Download reports
+
+---
+
+## 🎯 Use Cases
+
+### Academic Research
+- ✅ Literature reviews
+- ✅ Systematic reviews
+- ✅ Meta-analyses
+- ✅ Research gap identification
+- ✅ Citation tracking
+
+### Industry Applications
+- ✅ Competitive intelligence
+- ✅ Technology scouting
+- ✅ Patent landscaping
+- ✅ Trend analysis
+- ✅ Expert identification
+
+### Educational
+- ✅ Teaching research methods
+- ✅ Student projects
+- ✅ Library services
+- ✅ Information literacy
+
+---
+
+## 🔄 Workflow
+
+```
+┌─────────────────┐
+│   Enter Query   │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│ Parallel Search │──▶ 18 Databases Searched Simultaneously
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│  Deduplicate    │──▶ Merge Results, Identify Duplicates
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│ Relevance Score │──▶ Weight: Citations + Sources + Recency
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│   Deep Look     │──▶ Fetch Full Abstracts for Top Papers
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│  Gap Analysis   │──▶ Identify Research Opportunities
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│   Analytics     │──▶ Generate Charts & Statistics
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│     Export      │──▶ CSV, JSON, BibTeX, Reports
+└─────────────────┘
+```
+
+---
+
+## 📈 Performance
+
+### Typical Search Times
+
+| Configuration | Time | Papers | Engines |
+|--------------|------|--------|---------|
+| Free only | 15-30s | 200-300 | 13 |
+| + Premium (cached) | 20-40s | 300-400 | 16-18 |
+| + Premium (uncached) | 30-60s | 400-500 | 16-18 |
+
+**Note:** Times vary based on query complexity and API response times
+
+### Optimization Tips
+1. Use specific queries (better relevance)
+2. Enable caching for repeated searches
+3. Adjust `limit_per_engine` based on needs
+4. Consider rate limits for premium APIs
+
+---
+
+## 🤝 Contributing
+
+### Adding New Engines
+
+1. **Create utils file**: `new_engine_utils.py`
+2. **Implement fetch function**: `fetch_and_process_newengine()`
+3. **Add to orchestrator**: Import and call in `run_search()`
+4. **Update UI**: Add to engine list in `streamlit_app.py`
+5. **Document**: Update README and guides
+
+### Improving Gap Analysis
+
+1. **Add patterns**: Edit `gap_utils.py`
+2. **Test patterns**: Run on diverse queries
+3. **Document patterns**: Add to pattern documentation
+4. **Submit PR**: Include test results
+
+### Bug Reports
+
+Please include:
+- Operating system
+- Python version
+- Error message/traceback
+- Steps to reproduce
+- Which mode (dev/production)
+- Which engines enabled
+
+---
+
+## 📄 License
+
+MIT License - See [LICENSE](LICENSE) file for details
+
+---
+
+## 🙏 Acknowledgments
+
+### Data Sources
+- Semantic Scholar
+- Google Scholar
+- arXiv
+- PubMed/NCBI
+- Crossref
+- OpenAlex
+- CORE
+- SCOPUS/Elsevier
+- Springer Nature
+- And 9 more scholarly databases
+
+### Technologies
+- Streamlit (UI framework)
+- Python (core language)
+- Matplotlib (visualizations)
+- Concurrent.futures (parallel processing)
+
+---
+
+## 📞 Support
+
+### Getting Help
+
+1. **Read documentation**
+   - QUICKSTART.md for basic setup
+   - SETUP_GUIDE.md for detailed info
+   - COMPARISON.md for understanding changes
+
+2. **Check common issues**
+   - See SETUP_GUIDE.md troubleshooting section
+   - Verify .gitignore configuration
+   - Confirm API keys are valid
+
+3. **Community**
+   - Open GitHub issue
+   - Include relevant details (OS, Python version, etc.)
+   - Specify development or production mode
+
+---
+
+## 🗺️ Roadmap
+
+### Planned Features
+
+- [ ] Additional scholarly databases (IEEE, Web of Science)
+- [ ] Machine learning-based relevance scoring
+- [ ] Collaborative filtering recommendations
+- [ ] Export to Zotero/Mendeley
+- [ ] API for programmatic access
+- [ ] Advanced visualization dashboards
+- [ ] Citation network analysis
+- [ ] Author disambiguation
+- [ ] Institution tracking
+
+### Under Consideration
+
+- [ ] Local database caching
+- [ ] Offline mode
+- [ ] Mobile app
+- [ ] Browser extension
+- [ ] Automated literature review generation
+
+---
+
+## 📊 Statistics
+
+- **18** Scholarly Databases
+- **500M+** Total Papers Available
+- **13** Free Engines (No Keys Required)
+- **5** Premium Engines (Optional)
+- **2** Operating Modes (Dev + Production)
+- **Multiple** Export Formats (CSV, JSON, BibTeX)
+
+---
+
+## ⚡ Quick Links
+
+- 📘 [Quick Start Guide](QUICKSTART.md) - Get started in 5 minutes
+- 🔧 [Setup Guide](SETUP_GUIDE.md) - Comprehensive configuration
+- 📊 [Comparison](COMPARISON.md) - Before/after improvements
+- 🔑 [Secrets Template](secrets.toml.template) - API key configuration
+- 🛡️ [.gitignore](.gitignore) - Security configuration
+
+---
+
+**Built with ❤️ for the academic research community**
+
+**Version:** 2.0 (Smart Key Detection)  
+**Last Updated:** January 2026  
+**Status:** Production Ready

@@ -1,7 +1,11 @@
 """
 SROrch Streamlit Interface
 A web interface for the Scholarly Research Orchestrator
-Session-Only API Keys (Safe for Public Deployment)
+
+ENHANCED SECURITY MODEL:
+- Priority 1: Check Streamlit secrets (for development/testing)
+- Priority 2: User-provided session keys (for production)
+- Easy transition: Delete secrets.toml to switch to production mode
 """
 
 import streamlit as st
@@ -74,8 +78,48 @@ st.markdown("""
         border-radius: 0.3rem;
         margin: 1rem 0;
     }
+    .dev-mode-badge {
+        padding: 0.5rem;
+        background-color: #ffeaa7;
+        border-left: 4px solid #fdcb6e;
+        border-radius: 0.3rem;
+        margin: 1rem 0;
+        font-weight: bold;
+    }
     </style>
 """, unsafe_allow_html=True)
+
+def get_secret_or_empty(key_name):
+    """
+    Safely retrieve a secret from Streamlit secrets, return empty string if not found.
+    This allows graceful fallback to user-provided keys.
+    """
+    try:
+        return st.secrets.get(key_name, '')
+    except (FileNotFoundError, KeyError, AttributeError):
+        return ''
+
+def check_dev_mode():
+    """
+    Check if running in development mode (secrets configured)
+    Returns (is_dev_mode, configured_keys)
+    """
+    dev_keys = []
+    
+    # Check which keys are configured in secrets
+    key_mappings = {
+        'S2_API_KEY': 'Semantic Scholar',
+        'SERP_API_KEY': 'Google Scholar',
+        'CORE_API_KEY': 'CORE',
+        'SCOPUS_API_KEY': 'SCOPUS',
+        'META_SPRINGER_API_KEY': 'Springer Nature'
+    }
+    
+    for key, name in key_mappings.items():
+        if get_secret_or_empty(key):
+            dev_keys.append(name)
+    
+    return len(dev_keys) > 0, dev_keys
 
 def initialize_session_state():
     """Initialize session state with empty API keys (session-only, not persistent)"""
@@ -88,7 +132,7 @@ def initialize_session_state():
         st.session_state['user_core_key'] = ''
     if 'user_scopus_key' not in st.session_state:
         st.session_state['user_scopus_key'] = ''
-    if 'user_springer_key' not in st.session_state:  # ✅ NEW
+    if 'user_springer_key' not in st.session_state:
         st.session_state['user_springer_key'] = ''
     if 'user_email' not in st.session_state:
         st.session_state['user_email'] = 'researcher@example.com'
@@ -108,27 +152,32 @@ def initialize_session_state():
 
 def load_api_keys():
     """
-    Load API keys from session state only (temporary, lost on refresh)
-    No persistent storage for maximum security in public deployment
+    Load API keys with intelligent fallback strategy:
+    1. First, check Streamlit secrets (for development/testing)
+    2. If not found, use session state (user-provided keys)
+    
+    This allows developers to pre-configure keys during development,
+    then switch to user-provided mode by simply deleting the secrets file.
     """
     return {
         # Current Premium Engines
-        's2': st.session_state.get('user_s2_key', '').strip(),
-        'serp': st.session_state.get('user_serp_key', '').strip(),
-        'core': st.session_state.get('user_core_key', '').strip(),
-        'scopus': st.session_state.get('user_scopus_key', '').strip(),
-        'springer': st.session_state.get('user_springer_key', '').strip(),  # ✅ NEW
-        'email': st.session_state.get('user_email', 'researcher@example.com').strip(),
+        # Priority: secrets.toml > user input > empty string
+        's2': st.session_state.get('user_s2_key', '').strip() or get_secret_or_empty('S2_API_KEY'),
+        'serp': st.session_state.get('user_serp_key', '').strip() or get_secret_or_empty('SERP_API_KEY'),
+        'core': st.session_state.get('user_core_key', '').strip() or get_secret_or_empty('CORE_API_KEY'),
+        'scopus': st.session_state.get('user_scopus_key', '').strip() or get_secret_or_empty('SCOPUS_API_KEY'),
+        'springer': st.session_state.get('user_springer_key', '').strip() or get_secret_or_empty('META_SPRINGER_API_KEY'),
+        'email': st.session_state.get('user_email', 'researcher@example.com').strip() or get_secret_or_empty('USER_EMAIL') or 'researcher@example.com',
         
         # 📌 PLACEHOLDER: Add additional premium engine keys here
         # Template for adding a new premium engine:
-        # 'new_engine': st.session_state.get('user_new_engine_key', '').strip(),
+        # 'new_engine': st.session_state.get('user_new_engine_key', '').strip() or get_secret_or_empty('NEW_ENGINE_API_KEY'),
         
         # Example: IEEE Xplore (uncomment when implemented)
-        # 'ieee': st.session_state.get('user_ieee_key', '').strip(),
+        # 'ieee': st.session_state.get('user_ieee_key', '').strip() or get_secret_or_empty('IEEE_API_KEY'),
         
         # Example: Web of Science (uncomment when implemented)
-        # 'wos': st.session_state.get('user_wos_key', '').strip(),
+        # 'wos': st.session_state.get('user_wos_key', '').strip() or get_secret_or_empty('WOS_API_KEY'),
     }
 
 def render_api_key_input_section():
@@ -138,9 +187,29 @@ def render_api_key_input_section():
     """
     st.sidebar.header("🔑 API Configuration")
     
-    st.sidebar.info("🔒 **Keys are temporary** - Lost when you refresh or close the tab (for your security!)")
+    # Check if running in dev mode
+    is_dev_mode, dev_keys = check_dev_mode()
     
-    with st.sidebar.expander("📝 Enter Your API Keys (Optional)", expanded=False):
+    if is_dev_mode:
+        st.sidebar.markdown(f"""
+        <div class="dev-mode-badge">
+            🔧 DEV MODE ACTIVE<br>
+            Pre-configured keys detected: {len(dev_keys)}<br>
+            <small>Delete secrets.toml to switch to production mode</small>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        with st.sidebar.expander("📋 Active Developer Keys", expanded=False):
+            for key in dev_keys:
+                st.markdown(f"✅ **{key}** (from secrets)")
+            st.info("💡 These keys are loaded from `secrets.toml` for development convenience.")
+    
+    st.sidebar.info("🔒 **User keys are temporary** - Lost when you refresh or close the tab (for your security!)")
+    
+    with st.sidebar.expander("📝 Enter Your API Keys (Optional)", expanded=not is_dev_mode):
+        if is_dev_mode:
+            st.warning("⚠️ Developer keys are active. User input will override secrets for this session.")
+        
         st.markdown("""
         **Optional Premium Engines:**
         - Semantic Scholar (free key available)
@@ -172,7 +241,7 @@ def render_api_key_input_section():
             type="password",
             help="Get free key at: https://www.semanticscholar.org/product/api",
             key="s2_input_widget",
-            placeholder="Enter your S2 API key"
+            placeholder="Enter your S2 API key (or use dev secrets)"
         )
         
         serp_key = st.text_input(
@@ -181,7 +250,7 @@ def render_api_key_input_section():
             type="password",
             help="Get key at: https://serpapi.com/",
             key="serp_input_widget",
-            placeholder="Enter your SERP API key"
+            placeholder="Enter your SERP API key (or use dev secrets)"
         )
         
         core_key = st.text_input(
@@ -190,7 +259,7 @@ def render_api_key_input_section():
             type="password",
             help="Get key at: https://core.ac.uk/services/api",
             key="core_input_widget",
-            placeholder="Enter your CORE API key"
+            placeholder="Enter your CORE API key (or use dev secrets)"
         )
         
         scopus_key = st.text_input(
@@ -199,17 +268,16 @@ def render_api_key_input_section():
             type="password",
             help="Get key at: https://dev.elsevier.com/",
             key="scopus_input_widget",
-            placeholder="Enter your SCOPUS API key"
+            placeholder="Enter your SCOPUS API key (or use dev secrets)"
         )
         
-        # ✅ NEW: Springer Nature
         springer_key = st.text_input(
             "Springer Nature API Key",
             value="",
             type="password",
             help="Get key at: https://dev.springernature.com/",
             key="springer_input_widget",
-            placeholder="Enter your Springer API key"
+            placeholder="Enter your Springer API key (or use dev secrets)"
         )
         
         # =======================================
@@ -226,25 +294,6 @@ def render_api_key_input_section():
         #     placeholder="Enter your New Engine API key"
         # )
         
-        # Example: IEEE Xplore (uncomment when implemented)
-        # ieee_key = st.text_input(
-        #     "IEEE Xplore API Key",
-        #     value="",
-        #     type="password",
-        #     help="Get key at: https://developer.ieee.org/",
-        #     key="ieee_input_widget",
-        #     placeholder="Enter your IEEE API key"
-        # )
-        
-        # Example: Web of Science (uncomment when implemented)
-        # wos_key = st.text_input(
-        #     "Web of Science API Key",
-        #     value="",
-        #     type="password",
-        #     help="Get key at: https://developer.clarivate.com/",
-        #     key="wos_input_widget",
-        #     placeholder="Enter your WoS API key"
-        # )
         # =======================================
         
         email = st.text_input(
@@ -262,38 +311,46 @@ def render_api_key_input_section():
             st.session_state['user_serp_key'] = serp_key.strip()
             st.session_state['user_core_key'] = core_key.strip()
             st.session_state['user_scopus_key'] = scopus_key.strip()
-            st.session_state['user_springer_key'] = springer_key.strip()  # ✅ NEW
+            st.session_state['user_springer_key'] = springer_key.strip()
             st.session_state['user_email'] = email.strip()
             
             # 📌 PLACEHOLDER: Update session state for additional engines
             # st.session_state['user_new_engine_key'] = new_engine_key.strip()
-            # st.session_state['user_ieee_key'] = ieee_key.strip()
-            # st.session_state['user_wos_key'] = wos_key.strip()
             
             st.success("✅ Keys applied for this session!")
             st.rerun()
         
-        # Show which keys are currently active
+        # Show which keys are currently active (from either source)
+        api_keys = load_api_keys()
         active_keys = []
-        if st.session_state.get('user_s2_key'):
+        sources = []
+        
+        if api_keys.get('s2'):
             active_keys.append("Semantic Scholar")
-        if st.session_state.get('user_serp_key'):
+            sources.append("secrets" if not st.session_state.get('user_s2_key') else "user")
+        if api_keys.get('serp'):
             active_keys.append("Google Scholar")
-        if st.session_state.get('user_core_key'):
+            sources.append("secrets" if not st.session_state.get('user_serp_key') else "user")
+        if api_keys.get('core'):
             active_keys.append("CORE")
-        if st.session_state.get('user_scopus_key'):
+            sources.append("secrets" if not st.session_state.get('user_core_key') else "user")
+        if api_keys.get('scopus'):
             active_keys.append("SCOPUS")
-        if st.session_state.get('user_springer_key'):  # ✅ NEW
+            sources.append("secrets" if not st.session_state.get('user_scopus_key') else "user")
+        if api_keys.get('springer'):
             active_keys.append("Springer Nature")
+            sources.append("secrets" if not st.session_state.get('user_springer_key') else "user")
         
         # 📌 PLACEHOLDER: Check for new engine keys
-        # if st.session_state.get('user_ieee_key'):
-        #     active_keys.append("IEEE Xplore")
-        # if st.session_state.get('user_wos_key'):
-        #     active_keys.append("Web of Science")
         
         if active_keys:
-            st.success(f"🔑 Active: {', '.join(active_keys)}")
+            key_source_info = []
+            for i, key in enumerate(active_keys):
+                source = "🔧" if sources[i] == "secrets" else "👤"
+                key_source_info.append(f"{source} {key}")
+            
+            st.success(f"🔑 Active: {', '.join(key_source_info)}")
+            st.caption("🔧 = from secrets | 👤 = user input")
         else:
             st.info("ℹ️ Using free engines only")
 
@@ -306,18 +363,12 @@ def check_api_keys(api_keys):
     status['serp'] = "✅" if api_keys.get('serp') and len(api_keys.get('serp', '')) > 5 else "❌"
     status['core'] = "✅" if api_keys.get('core') and len(api_keys.get('core', '')) > 5 else "❌"
     status['scopus'] = "✅" if api_keys.get('scopus') and len(api_keys.get('scopus', '')) > 5 else "❌"
-    status['springer'] = "✅" if api_keys.get('springer') and len(api_keys.get('springer', '')) > 5 else "❌"  # ✅ NEW
+    status['springer'] = "✅" if api_keys.get('springer') and len(api_keys.get('springer', '')) > 5 else "❌"
     status['email'] = "✅" if api_keys.get('email') and api_keys['email'] != 'researcher@example.com' else "⚠️"
     
     # 📌 PLACEHOLDER: Add validation for additional engines
     # Template for adding a new premium engine:
     # status['new_engine'] = "✅" if api_keys.get('new_engine') and len(api_keys.get('new_engine', '')) > 5 else "❌"
-    
-    # Example: IEEE Xplore (uncomment when implemented)
-    # status['ieee'] = "✅" if api_keys.get('ieee') and len(api_keys.get('ieee', '')) > 5 else "❌"
-    
-    # Example: Web of Science (uncomment when implemented)
-    # status['wos'] = "✅" if api_keys.get('wos') and len(api_keys.get('wos', '')) > 5 else "❌"
     
     return status
 
@@ -334,27 +385,21 @@ def get_available_engines(key_status):
         available.append("CORE")
     if key_status['scopus'] == "✅":
         available.append("SCOPUS")
-    if key_status['springer'] == "✅":  # ✅ NEW
+    if key_status['springer'] == "✅":
         available.append("Springer Nature")
     
     # 📌 PLACEHOLDER: Add checks for additional premium engines
-    # if key_status.get('ieee') == "✅":
-    #     available.append("IEEE Xplore")
-    # if key_status.get('wos') == "✅":
-    #     available.append("Web of Science")
     
     # Free Engines (always available - no key required)
-    # Original 4 free engines
     available.extend(["arXiv", "PubMed", "Crossref/DOI", "OpenAlex"])
     
-    # ✅ NEW: 8 additional free engines
+    # Additional Free Engines
     available.extend([
         "Europe PMC", "PLOS", "SSRN", "DeepDyve",
-        "Wiley", "Taylor & Francis", "ACM Digital Library", "DBLP", "SAGE Journals"  # ✅ Added SAGE
+        "Wiley", "Taylor & Francis", "ACM Digital Library", "DBLP", "SAGE Journals"
     ])
     
     # 📌 PLACEHOLDER: Add additional free engines here
-    # available.extend(["DOAJ", "BASE"])  # Example free engines
     
     return available
 
@@ -403,7 +448,7 @@ def create_download_buttons(output_dir):
     files_to_download = {
         'MASTER_REPORT_FINAL.csv': ('CSV Report', 'text/csv', col1),
         'EXECUTIVE_SUMMARY.txt': ('Executive Summary', 'text/plain', col2),
-        'RESEARCH_GAPS.txt': ('Research Gaps', 'text/plain', col3),  # ✅ NEW
+        'RESEARCH_GAPS.txt': ('Research Gaps', 'text/plain', col3),
         'research_data.json': ('JSON Data', 'application/json', col1),
         'references.bib': ('BibTeX', 'text/plain', col2),
         'research_analytics.png': ('Analytics Chart', 'image/png', col3),
@@ -442,6 +487,11 @@ def main():
     st.markdown('<p class="main-header">🔬 SROrch - Scholarly Research Orchestrator</p>', unsafe_allow_html=True)
     st.markdown('<p class="sub-header">Multi-Engine Academic Literature Search & Analysis</p>', unsafe_allow_html=True)
     
+    # Check and display dev mode status
+    is_dev_mode, dev_keys = check_dev_mode()
+    if is_dev_mode:
+        st.info(f"🔧 **Development Mode Active** - Using {len(dev_keys)} pre-configured API key(s) from secrets.toml")
+    
     # Sidebar - Configuration
     with st.sidebar:
         st.header("⚙️ Configuration")
@@ -466,19 +516,15 @@ def main():
             "Google Scholar": key_status['serp'],
             "CORE": key_status['core'],
             "SCOPUS": key_status['scopus'],
-            "Springer Nature": key_status['springer'],  # ✅ NEW
+            "Springer Nature": key_status['springer'],
             
             # 📌 PLACEHOLDER: Add additional premium engines here
-            # "IEEE Xplore": key_status.get('ieee', '❌'),
-            # "Web of Science": key_status.get('wos', '❌'),
             
-            # Original Free Engines (always available)
+            # Free Engines (always available)
             "arXiv": "✅",
             "PubMed": "✅",
             "Crossref/DOI": "✅",
             "OpenAlex": "✅",
-            
-            # ✅ NEW: Additional Free Engines (9 new)
             "Europe PMC": "✅",
             "PLOS": "✅",
             "SSRN": "✅",
@@ -487,11 +533,9 @@ def main():
             "Taylor & Francis": "✅",
             "ACM Digital Library": "✅",
             "DBLP": "✅",
-            "SAGE Journals": "✅",  # ✅ NEW
+            "SAGE Journals": "✅",
             
             # 📌 PLACEHOLDER: Add additional free engines here
-            # "DOAJ": "✅",
-            # "BASE": "✅",
         }
         
         for engine, status in engine_display.items():
@@ -500,16 +544,14 @@ def main():
             else:
                 st.markdown(f"❌ {engine} *(no key)*")
         
-        # ✅ UPDATED: Total engine count (5 premium + 13 free = 18 engines)
         st.info(f"**Active Engines:** {len(available_engines)}/18")
         
         # Informational message
-        if len(available_engines) < 8:
-            free_count = len([e for e in available_engines if e in ["arXiv", "PubMed", "Crossref/DOI", "OpenAlex"]])
+        if len(available_engines) < 10 and not is_dev_mode:
             st.markdown(f"""
             <div class="info-box">
                 <strong>💡 Get More Coverage!</strong><br>
-                You're using <strong>{free_count}</strong> free engines. Add your own API keys above to unlock premium engines!
+                Add API keys to unlock premium engines!
             </div>
             """, unsafe_allow_html=True)
         
@@ -622,19 +664,19 @@ def main():
         st.header("Search Academic Literature")
         
         # Show engine availability info
-        if len(available_engines) == 8:
-            st.success(f"✅ All 8 engines active! You'll get comprehensive coverage.")
-        elif len(available_engines) == 4:
-            st.info(f"ℹ️ Using 4 free engines: {', '.join(available_engines)}")
-            st.markdown("""
-            <div class="info-box">
-                <strong>💡 Want More Coverage?</strong><br>
-                Add your own API keys in the sidebar to unlock 4 additional premium engines!<br>
-                <strong>Semantic Scholar</strong> is free and highly recommended.
-            </div>
-            """, unsafe_allow_html=True)
+        if len(available_engines) == 18:
+            st.success(f"✅ All 18 engines active! You'll get comprehensive coverage.")
+        elif len(available_engines) >= 13:
+            st.info(f"ℹ️ Using {len(available_engines)} engines with free + premium coverage")
         else:
-            st.info(f"ℹ️ Searching with {len(available_engines)} engines: {', '.join(available_engines)}")
+            st.info(f"ℹ️ Using {len(available_engines)} free engines")
+            if not is_dev_mode:
+                st.markdown("""
+                <div class="info-box">
+                    <strong>💡 Want More Coverage?</strong><br>
+                    Add your own API keys in the sidebar to unlock additional premium engines!
+                </div>
+                """, unsafe_allow_html=True)
         
         # Search input
         search_query = st.text_input(
@@ -794,9 +836,23 @@ def main():
         SROrch is a powerful multi-engine academic literature search and analysis tool that aggregates 
         results from multiple scholarly databases to provide comprehensive research coverage.
         
+        #### 🔧 Development vs Production Modes
+        
+        **Development Mode (Current):**
+        - Pre-configure API keys in `secrets.toml`
+        - Keys automatically loaded from secrets
+        - Perfect for testing and development
+        - Easy switching: just delete `secrets.toml` to go production
+        
+        **Production Mode:**
+        - Users provide their own API keys
+        - Keys stored in browser memory only (session-only)
+        - Maximum security - no persistent storage
+        - Each user manages their own quotas
+        
         #### 📚 Supported Databases (18 Engines!)
         
-        **Premium Engines (Require Your Own API Keys):**
+        **Premium Engines (Require API Keys):**
         - **Semantic Scholar** - AI-powered academic search (FREE key available!)
         - **Google Scholar** - Broad academic search (via SERP API)
         - **CORE** - Open access research aggregator
@@ -831,101 +887,58 @@ def main():
         - **Multiple export formats** - CSV, JSON, and BibTeX support
         - **Recency boosting** - Optional preference for recent publications
         - **High-consensus alerts** - Automatic notifications for widely-indexed papers
-        - **Zero-trust security** - Use your own API keys, no data stored on server
+        - **Flexible key management** - Dev secrets + user input support
         
-        #### 🚀 Getting Started
+        #### 🔑 Setting Up Development Mode
         
-        **Instant Use (No Setup):**
-        - Works immediately with 4 free engines
-        - No API keys required
-        - Perfect for quick searches and open access research
+        Create a `.streamlit/secrets.toml` file:
         
-        **Add Your Own API Keys (Optional):**
-        1. Click "Enter Your API Keys" in the sidebar
-        2. Enter keys for any premium engines you have access to
-        3. Click "Apply Keys"
-        4. Get up to 8 engines for comprehensive coverage
+        ```toml
+        # Premium Engine API Keys
+        S2_API_KEY = "your-semantic-scholar-key"
+        SERP_API_KEY = "your-serp-api-key"
+        CORE_API_KEY = "your-core-api-key"
+        SCOPUS_API_KEY = "your-scopus-api-key"
+        META_SPRINGER_API_KEY = "your-springer-key"
         
-        **Important:** Keys are temporary (this session only) for your security!
+        # Optional
+        USER_EMAIL = "your.email@example.com"
+        ```
         
-        #### 🔑 How to Get API Keys
-        
-        **Semantic Scholar** (Recommended - FREE!)
-        - Visit: https://www.semanticscholar.org/product/api
-        - Sign up and request a free API key (takes 2 minutes)
-        - Best free option with excellent metadata and abstracts
-        - Strongly recommended for most users
-        
-        **SERP API** (Google Scholar)
-        - Visit: https://serpapi.com/
-        - Free tier: 100 searches/month
-        - Unlocks Google Scholar's massive database
-        
-        **CORE API** (FREE for academics)
-        - Visit: https://core.ac.uk/services/api
-        - Free academic API key available
-        - Access to millions of open access papers
-        
-        **SCOPUS API**
-        - Visit: https://dev.elsevier.com/
-        - Requires institutional access or paid plan
-        - Most comprehensive but also most expensive
+        **To switch to production:** Simply delete or rename `secrets.toml`
         
         #### 🔒 Security & Privacy
         
-        **Your API Keys Are Safe:**
-        - ✅ Stored only in browser memory (session state)
-        - ✅ Never saved to disk or server
-        - ✅ Automatically cleared when you refresh or close tab
-        - ✅ Each user uses their own keys and quotas
-        - ✅ Zero exposure for the app developer
-        - ✅ Zero risk of unexpected charges
+        **Development Mode:**
+        - Keys in `secrets.toml` (never commit to Git!)
+        - Add `secrets.toml` to `.gitignore`
+        - Perfect for testing with your own keys
         
-        **How It Works:**
-        1. You enter your API keys (optional)
-        2. Keys stay in your browser's memory
-        3. SROrch uses them to search on your behalf
-        4. Results are returned to you
-        5. Close tab → keys are gone
+        **Production Mode:**
+        - User-provided keys only (session memory)
+        - No persistent storage
+        - Keys automatically cleared on refresh
+        - Zero developer liability
         
-        **Why This Is Safe:**
-        - No shared API keys (everyone uses their own)
-        - No persistent storage (keys deleted automatically)
-        - No server-side storage (keys never leave your browser)
-        - No developer liability (you control your own quotas)
+        #### 💡 Best Practices
         
-        #### 💡 Tips
+        **For Developers:**
+        1. Use `secrets.toml` during development
+        2. Add secrets to `.gitignore`
+        3. Delete secrets before deployment
+        4. Let users provide their own keys in production
         
-        **For Best Results:**
-        1. Start with the 4 free engines (instant access)
+        **For Users:**
+        1. Start with 13 free engines (instant access)
         2. Add Semantic Scholar key (free, highly recommended)
         3. Use specific search terms for better results
-        4. Check "source_count" - papers in multiple engines are more reliable
-        5. Export results in your preferred format (CSV/JSON/BibTeX)
-        
-        **Cost Optimization:**
-        - Free engines: Unlimited, always available
-        - Semantic Scholar: Free tier is generous
-        - SERP API: 100 free searches/month
-        - You control your own usage and costs
-        
-        #### 📊 Understanding Results
-        
-        **Relevance Score:** Based on citations, source count, and recency
-        **Source Count:** How many databases found this paper (higher = more reliable)
-        **High Consensus:** Papers found in 4+ databases automatically flagged
-        
-        #### 🎯 Use Cases
-        - Literature reviews and systematic reviews
-        - Research gap analysis
-        - Citation mapping
-        - Trend identification in research fields
-        - Multi-database validation
+        4. Check "source_count" for reliability
+        5. Export results in your preferred format
         
         ---
         
-        **Version:** Public v1.0 (Session-Only Keys)  
-        **Security Model:** Zero-Trust (User-Provided Keys)  
+        **Version:** Enhanced v2.0 (Smart Key Detection)  
+        **Security Model:** Flexible (Dev + Production Ready)  
         **License:** MIT
         """)
         
@@ -935,7 +948,8 @@ def main():
 Python Version: {sys.version}
 Working Directory: {os.getcwd()}
 Streamlit Version: {st.__version__}
-Security Model: Session-only keys (no persistence)
+Security Model: Smart key detection (secrets → user input → empty)
+Dev Mode: {'Active' if is_dev_mode else 'Inactive'}
             """)
 
 if __name__ == "__main__":
