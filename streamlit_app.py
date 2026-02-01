@@ -77,17 +77,14 @@ st.markdown("""
     }
     .dev-mode-badge {
         padding: 0.5rem;
-        background-color: #ffeaa7; 
-        border-left: 4px solid #fd846e; 
+        background-color: #ffeaa7;
+        border-left: 4px solid #fdcb6e;
         border-radius: 0.3rem;
         margin: 1rem 0;
         font-weight: bold;
     }
     </style>
 """, unsafe_allow_html=True)
-
-# background-color: #ffeaa7 pale yellow
-# border-left: #fdcb6e; # saturated shade of yellow
 
 def get_secret_or_empty(key_name):
     """
@@ -947,15 +944,18 @@ def main():
                         # Add bookmark indicator column
                         display_df.insert(0, '📑', display_df.index.map(lambda x: '⭐' if x in st.session_state['bookmarked_papers'] else ''))
                         
-                        # ✅ NEW: Apply alternating row colors with custom styling (zebra strips)
-                        # f0f2f6 very light, desaturated blue-gray, ffffff white
-                        # Modern/Dark: Dark Gray/Light Gray (used for dark-themed UI) 
+                        # ✅ ENHANCED: Apply alternating row colors with theme-aware styling
                         def highlight_rows(row):
-                            """Apply alternating row colors for better readability"""
+                            """
+                            Apply alternating row colors for better readability.
+                            Uses semi-transparent colors that work in both light and dark themes.
+                            """
                             if row.name % 2 == 0:
-                                return ['background-color: #f0f2f6'] * len(row)
+                                # Even rows: subtle semi-transparent overlay
+                                return ['background-color: rgba(128, 128, 128, 0.1)'] * len(row)
                             else:
-                                return ['background-color: #ffffff'] * len(row)
+                                # Odd rows: slightly darker semi-transparent overlay
+                                return ['background-color: rgba(128, 128, 128, 0.05)'] * len(row)
                         
                         # Apply styling
                         styled_df = display_df.style.apply(highlight_rows, axis=1)
