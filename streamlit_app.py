@@ -77,14 +77,17 @@ st.markdown("""
     }
     .dev-mode-badge {
         padding: 0.5rem;
-        background-color: #ffeaa7;
-        border-left: 4px solid #fdcb6e;
+        background-color: #ffeaa7; 
+        border-left: 4px solid #fd846e; 
         border-radius: 0.3rem;
         margin: 1rem 0;
         font-weight: bold;
     }
     </style>
 """, unsafe_allow_html=True)
+
+# background-color: #ffeaa7 pale yellow
+# border-left: #fdcb6e; # saturated shade of yellow
 
 def get_secret_or_empty(key_name):
     """
@@ -944,13 +947,15 @@ def main():
                         # Add bookmark indicator column
                         display_df.insert(0, '📑', display_df.index.map(lambda x: '⭐' if x in st.session_state['bookmarked_papers'] else ''))
                         
-                        # ✅ NEW: Apply alternating row colors with custom styling
+                        # ✅ NEW: Apply alternating row colors with custom styling (zebra strips)
+                        # f0f2f6 very light, desaturated blue-gray, ffffff white
+                        # Modern/Dark: Dark Gray/Light Gray (used for dark-themed UI) 
                         def highlight_rows(row):
                             """Apply alternating row colors for better readability"""
                             if row.name % 2 == 0:
-                                return ['background-color: #f0f2f6'] * len(row)
+                                return ['background-color: #121212'] * len(row)
                             else:
-                                return ['background-color: #ffffff'] * len(row)
+                                return ['background-color: #e0e0e0'] * len(row)
                         
                         # Apply styling
                         styled_df = display_df.style.apply(highlight_rows, axis=1)
