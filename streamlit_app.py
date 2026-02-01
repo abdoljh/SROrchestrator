@@ -953,9 +953,9 @@ def main():
                         def highlight_rows(row):
                             """Apply alternating row colors for better readability"""
                             if row.name % 2 == 0:
-                                return ['background-color: #121212'] * len(row)
+                                return ['background-color: #f2f2f2'] * len(row)
                             else:
-                                return ['background-color: #e0e0e0'] * len(row)
+                                return ['background-color: #ffffff'] * len(row)
                         
                         # Apply styling
                         styled_df = display_df.style.apply(highlight_rows, axis=1)
