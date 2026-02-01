@@ -345,7 +345,9 @@ class ResearchOrchestrator:
                 self.session_metadata['failed_engines'].append("SCOPUS (no API key)")
             
             if is_valid_key(self.api_keys.get('springer')):
-                tasks[executor.submit(springer_utils.fetch_and_process_springer, self.api_keys['springer'], query, max_limit=limit_per_engine)] = "Springer Nature"
+                #tasks[executor.submit(springer_utils.fetch_and_process_springer, self.api_keys['springer'], query, max_limit=limit_per_engine)] = "Springer Nature"
+                tasks[executor.submit(springer_utils.fetch_and_process_springer, query, max_limit=limit_per_engine)] = "Springer Nature"
+
                 print(f"  ✓ Springer Nature enabled (API key provided)")
             else:
                 print(f"  ✗ Springer Nature skipped (no valid API key)")
