@@ -755,11 +755,15 @@ def main():
             
             st.divider()
             
-            # ✅ NEW: Interactive Data Explorer
+            # ✅ ENHANCED: Interactive Data Explorer with Bookmarks & Selection
             csv_path = os.path.join(output_dir, "MASTER_REPORT_FINAL.csv")
             if os.path.exists(csv_path):
                 try:
                     df = pd.read_csv(csv_path)
+                    
+                    # Initialize bookmarks in session state
+                    if 'bookmarked_papers' not in st.session_state:
+                        st.session_state['bookmarked_papers'] = set()
                     
                     st.subheader("📊 Interactive Data Explorer")
                     
@@ -814,7 +818,7 @@ def main():
                         filtered_df = filtered_df[mask]
                     
                     # Display controls
-                    view_col1, view_col2 = st.columns([2, 1])
+                    view_col1, view_col2, view_col3 = st.columns([2, 1, 1])
                     
                     with view_col1:
                         st.markdown(f"**Showing {len(filtered_df)} of {len(df)} papers**")
@@ -823,9 +827,13 @@ def main():
                         # Quick actions
                         quick_action = st.selectbox(
                             "Quick Filter",
-                            ["All Papers", "Highly Cited (>50)", "High Consensus (≥4)", "Recent (Boosted)"],
+                            ["All Papers", "Highly Cited (>50)", "High Consensus (≥4)", "Recent (Boosted)", "Bookmarked Only"],
                             key="quick_filter"
                         )
+                    
+                    with view_col3:
+                        # Bookmark stats
+                        st.metric("📑 Bookmarks", len(st.session_state['bookmarked_papers']))
                     
                     # Apply quick filter
                     if quick_action == "Highly Cited (>50)" and 'citations' in filtered_df.columns:
@@ -834,10 +842,15 @@ def main():
                         filtered_df = filtered_df[filtered_df['source_count'] >= 4]
                     elif quick_action == "Recent (Boosted)" and 'recency_boosted' in filtered_df.columns:
                         filtered_df = filtered_df[filtered_df['recency_boosted'] == True]
+                    elif quick_action == "Bookmarked Only":
+                        if st.session_state['bookmarked_papers']:
+                            filtered_df = filtered_df[filtered_df.index.isin(st.session_state['bookmarked_papers'])]
+                        else:
+                            st.info("📑 No bookmarks yet. Select papers below to bookmark them!")
                     
                     # Column selection
                     all_cols = df.columns.tolist()
-                    default_cols = ['relevance_score', 'source_count', 'ieee_authors', 'title', 'venue', 'year', 'citations']
+                    default_cols = ['relevance_score', 'source_count', 'ieee_authors', 'title', 'venue', 'year', 'citations', 'url']
                     default_cols = [c for c in default_cols if c in all_cols]
                     
                     selected_cols = st.multiselect(
@@ -848,50 +861,193 @@ def main():
                     )
                     
                     if selected_cols:
-                        display_df = filtered_df[selected_cols]
+                        display_df = filtered_df[selected_cols].copy()
                         
-                        # Interactive table with sorting
+                        # Add bookmark indicator column
+                        display_df.insert(0, '📑', display_df.index.map(lambda x: '⭐' if x in st.session_state['bookmarked_papers'] else ''))
+                        
+                        # ✅ NEW: Apply alternating row colors with custom styling
+                        def highlight_rows(row):
+                            """Apply alternating row colors for better readability"""
+                            if row.name % 2 == 0:
+                                return ['background-color: #f0f2f6'] * len(row)
+                            else:
+                                return ['background-color: #ffffff'] * len(row)
+                        
+                        # Apply styling
+                        styled_df = display_df.style.apply(highlight_rows, axis=1)
+                        
+                        # ✅ ENHANCED: Interactive table with clickable URLs and custom styling
                         st.dataframe(
-                            display_df,
+                            styled_df,
                             use_container_width=True,
                             height=400,
                             hide_index=False,
                             column_config={
-                                "url": st.column_config.LinkColumn("URL"),
-                                "doi": st.column_config.TextColumn("DOI"),
+                                '📑': st.column_config.TextColumn('📑', width="small"),
+                                "url": st.column_config.LinkColumn("URL", display_text="🔗 Open"),  # ✅ Clickable!
+                                "doi": st.column_config.TextColumn("DOI", width="medium"),
                                 "relevance_score": st.column_config.NumberColumn("Score", format="%d"),
                                 "citations": st.column_config.NumberColumn("Cites", format="%d"),
                                 "source_count": st.column_config.NumberColumn("Sources", format="%d"),
+                                "year": st.column_config.TextColumn("Year", width="small"),
                             }
                         )
                         
-                        # Export filtered data
-                        export_col1, export_col2 = st.columns(2)
+                        st.info("💡 **Tip**: Click row numbers below to select papers, or use Bookmark Manager for quick access!")
                         
-                        with export_col1:
-                            csv_data = filtered_df.to_csv(index=False)
-                            st.download_button(
-                                label="📥 Export Filtered CSV",
-                                data=csv_data,
-                                file_name=f"filtered_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                                mime="text/csv",
-                                use_container_width=True
-                            )
+                        # ✅ NEW: Row Selection & Bookmark Management
+                        st.divider()
                         
-                        with export_col2:
-                            json_data = filtered_df.to_json(orient='records', indent=2)
-                            st.download_button(
-                                label="📥 Export Filtered JSON",
-                                data=json_data,
-                                file_name=f"filtered_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-                                mime="application/json",
-                                use_container_width=True
+                        action_col1, action_col2, action_col3 = st.columns(3)
+                        
+                        with action_col1:
+                            st.markdown("#### 📑 Bookmark Manager")
+                            
+                            # Select papers to bookmark
+                            paper_options = {idx: f"[{idx}] {row['title'][:50]}..." 
+                                           for idx, row in filtered_df.iterrows()}
+                            
+                            selected_for_bookmark = st.multiselect(
+                                "Select papers to bookmark",
+                                options=list(paper_options.keys()),
+                                format_func=lambda x: paper_options[x],
+                                key="bookmark_selector"
                             )
+                            
+                            bookmark_col1, bookmark_col2 = st.columns(2)
+                            
+                            with bookmark_col1:
+                                if st.button("⭐ Add Bookmarks", use_container_width=True):
+                                    st.session_state['bookmarked_papers'].update(selected_for_bookmark)
+                                    st.success(f"Added {len(selected_for_bookmark)} bookmark(s)!")
+                                    st.rerun()
+                            
+                            with bookmark_col2:
+                                if st.button("🗑️ Clear All", use_container_width=True):
+                                    st.session_state['bookmarked_papers'].clear()
+                                    st.success("All bookmarks cleared!")
+                                    st.rerun()
+                        
+                        with action_col2:
+                            st.markdown("#### ✅ Select & Download")
+                            
+                            # Select papers for download
+                            selected_for_download = st.multiselect(
+                                "Select papers to download",
+                                options=list(paper_options.keys()),
+                                format_func=lambda x: paper_options[x],
+                                key="download_selector"
+                            )
+                            
+                            if selected_for_download:
+                                selected_papers_df = filtered_df.loc[selected_for_download]
+                                
+                                download_col1, download_col2 = st.columns(2)
+                                
+                                with download_col1:
+                                    csv_data = selected_papers_df.to_csv(index=False)
+                                    st.download_button(
+                                        label=f"📥 CSV ({len(selected_for_download)})",
+                                        data=csv_data,
+                                        file_name=f"selected_{len(selected_for_download)}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                                        mime="text/csv",
+                                        use_container_width=True
+                                    )
+                                
+                                with download_col2:
+                                    json_data = selected_papers_df.to_json(orient='records', indent=2)
+                                    st.download_button(
+                                        label=f"📥 JSON ({len(selected_for_download)})",
+                                        data=json_data,
+                                        file_name=f"selected_{len(selected_for_download)}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                                        mime="application/json",
+                                        use_container_width=True
+                                    )
+                            else:
+                                st.info("Select papers above to enable download")
+                        
+                        with action_col3:
+                            st.markdown("#### 📥 Export Filtered")
+                            
+                            st.markdown(f"**Current filter: {len(filtered_df)} papers**")
+                            
+                            export_col1, export_col2 = st.columns(2)
+                            
+                            with export_col1:
+                                csv_data = filtered_df.to_csv(index=False)
+                                st.download_button(
+                                    label="📥 All CSV",
+                                    data=csv_data,
+                                    file_name=f"filtered_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                                    mime="text/csv",
+                                    use_container_width=True
+                                )
+                            
+                            with export_col2:
+                                json_data = filtered_df.to_json(orient='records', indent=2)
+                                st.download_button(
+                                    label="📥 All JSON",
+                                    data=json_data,
+                                    file_name=f"filtered_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                                    mime="application/json",
+                                    use_container_width=True
+                                )
+                        
+                        # ✅ NEW: Quick Access to Bookmarked Papers
+                        if st.session_state['bookmarked_papers']:
+                            st.divider()
+                            
+                            with st.expander(f"⭐ View Bookmarked Papers ({len(st.session_state['bookmarked_papers'])})", expanded=False):
+                                bookmarked_df = df.loc[list(st.session_state['bookmarked_papers'])]
+                                
+                                for idx, paper in bookmarked_df.iterrows():
+                                    with st.container():
+                                        col1, col2 = st.columns([4, 1])
+                                        
+                                        with col1:
+                                            st.markdown(f"**[{idx}] {paper.get('title', 'N/A')}**")
+                                            st.caption(f"Authors: {paper.get('ieee_authors', 'N/A')} | Year: {paper.get('year', 'N/A')} | Citations: {paper.get('citations', 0)}")
+                                            if paper.get('url'):
+                                                st.markdown(f"🔗 [{paper['url']}]({paper['url']})")
+                                        
+                                        with col2:
+                                            if st.button(f"🗑️ Remove", key=f"remove_{idx}"):
+                                                st.session_state['bookmarked_papers'].discard(idx)
+                                                st.rerun()
+                                        
+                                        st.divider()
+                                
+                                # Download all bookmarks
+                                bookmark_export_col1, bookmark_export_col2 = st.columns(2)
+                                
+                                with bookmark_export_col1:
+                                    bookmarks_csv = bookmarked_df.to_csv(index=False)
+                                    st.download_button(
+                                        label=f"📥 Download All Bookmarks (CSV)",
+                                        data=bookmarks_csv,
+                                        file_name=f"bookmarks_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                                        mime="text/csv",
+                                        use_container_width=True
+                                    )
+                                
+                                with bookmark_export_col2:
+                                    bookmarks_json = bookmarked_df.to_json(orient='records', indent=2)
+                                    st.download_button(
+                                        label=f"📥 Download All Bookmarks (JSON)",
+                                        data=bookmarks_json,
+                                        file_name=f"bookmarks_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                                        mime="application/json",
+                                        use_container_width=True
+                                    )
                     
                     st.divider()
                     
                 except Exception as e:
                     st.warning(f"Could not load interactive viewer: {e}")
+                    import traceback
+                    with st.expander("🔍 Error Details"):
+                        st.code(traceback.format_exc())
             
             # Display analytics chart if available
             chart_path = os.path.join(output_dir, "research_analytics.png")
