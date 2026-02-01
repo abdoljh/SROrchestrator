@@ -955,7 +955,7 @@ def main():
                             if row.name % 2 == 0:
                                 return ['background-color: #f2f2f2'] * len(row)
                             else:
-                                return ['background-color: #2f2f2f'] * len(row)
+                                return ['background-color: #f9f9f9'] * len(row)
                         
                         # Apply styling
                         styled_df = display_df.style.apply(highlight_rows, axis=1)
