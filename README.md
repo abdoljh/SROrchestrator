@@ -86,8 +86,6 @@ streamlit run streamlit_app.py
 ✅ Excellent metadata quality  
 ✅ Keys auto-loaded on startup  
 
-**See [QUICKSTART.md](QUICKSTART.md) for detailed instructions**
-
 ---
 
 ## 📚 Supported Databases
@@ -182,19 +180,6 @@ Priority: User Input → Secrets File → Empty String
 3. Neither available → USE FREE ENGINES ONLY
 ```
 
-**See [SETUP_GUIDE.md](SETUP_GUIDE.md) for comprehensive documentation**
-
----
-
-## 📖 Documentation
-
-| Document | Purpose | Read Time |
-|----------|---------|-----------|
-| **[QUICKSTART.md](QUICKSTART.md)** | Get started in 5 minutes | 5 min |
-| **[SETUP_GUIDE.md](SETUP_GUIDE.md)** | Complete configuration guide | 20 min |
-| **[COMPARISON.md](COMPARISON.md)** | Before/after improvements | 10 min |
-| **[secrets.toml.template](secrets.toml.template)** | API key template | 2 min |
-
 ---
 
 ## 🔐 Security
@@ -202,7 +187,6 @@ Priority: User Input → Secrets File → Empty String
 ### Development Mode Security
 
 **Protected by:**
-- `.gitignore` prevents committing `secrets.toml`
 - Local-only file storage
 - Each developer uses own keys
 - Clear documentation warnings
@@ -458,32 +442,11 @@ MIT License - See [LICENSE](LICENSE) file for details
 
 ---
 
-## 📞 Support
-
-### Getting Help
-
-1. **Read documentation**
-   - QUICKSTART.md for basic setup
-   - SETUP_GUIDE.md for detailed info
-   - COMPARISON.md for understanding changes
-
-2. **Check common issues**
-   - See SETUP_GUIDE.md troubleshooting section
-   - Verify .gitignore configuration
-   - Confirm API keys are valid
-
-3. **Community**
-   - Open GitHub issue
-   - Include relevant details (OS, Python version, etc.)
-   - Specify development or production mode
-
----
-
 ## 🗺️ Roadmap
 
 ### Planned Features
 
-- [ ] Additional scholarly databases (IEEE, Web of Science)
+- [ ] Additional scholarly databases (IEEE, ERIC, …)
 - [ ] Machine learning-based relevance scoring
 - [ ] Collaborative filtering recommendations
 - [ ] Export to Zotero/Mendeley
@@ -492,14 +455,6 @@ MIT License - See [LICENSE](LICENSE) file for details
 - [ ] Citation network analysis
 - [ ] Author disambiguation
 - [ ] Institution tracking
-
-### Under Consideration
-
-- [ ] Local database caching
-- [ ] Offline mode
-- [ ] Mobile app
-- [ ] Browser extension
-- [ ] Automated literature review generation
 
 ---
 
@@ -511,16 +466,6 @@ MIT License - See [LICENSE](LICENSE) file for details
 - **5** Premium Engines (Optional)
 - **2** Operating Modes (Dev + Production)
 - **Multiple** Export Formats (CSV, JSON, BibTeX)
-
----
-
-## ⚡ Quick Links
-
-- 📘 [Quick Start Guide](QUICKSTART.md) - Get started in 5 minutes
-- 🔧 [Setup Guide](SETUP_GUIDE.md) - Comprehensive configuration
-- 📊 [Comparison](COMPARISON.md) - Before/after improvements
-- 🔑 [Secrets Template](secrets.toml.template) - API key configuration
-- 🛡️ [.gitignore](.gitignore) - Security configuration
 
 ---
 
