@@ -82,9 +82,10 @@ st.markdown("""
         border-radius: 0.3rem;
         margin: 1rem 0;
         font-weight: bold;
-        color: #2d3436;  /* Dark gray for readability */
+        color: #d63031;  /* Red for warnings */
     }
-
+    /* #d63031 - Red for warnings */
+    /* #2d3436;  Dark gray for readability */
     </style>
 """, unsafe_allow_html=True)
 
