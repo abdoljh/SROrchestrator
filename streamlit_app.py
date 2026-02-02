@@ -29,7 +29,7 @@ st.set_page_config(
 st.markdown("""
     <style>
     .main-header {
-        font-family: "Times New Roman", Times, serif;
+        /* font-family: "Times New Roman", Times, serif; *:
         font-size: 2.5rem;
         font-weight: bold;
         color: #2acaea;
@@ -80,7 +80,7 @@ st.markdown("""
         margin: 1rem 0;
     }
     .dev-mode-badge {
-        padding: 0.5rem;
+        padding: 1rem;
         background-color: #ffeaa7;
         border-left: 4px solid #fdcb6e;
         border-radius: 0.3rem;
