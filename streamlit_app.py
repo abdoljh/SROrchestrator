@@ -29,7 +29,6 @@ st.set_page_config(
 st.markdown("""
     <style>
     .main-header {
-        /* font-family: "Times New Roman", Times, serif; *:
         font-size: 2.5rem;
         font-weight: bold;
         color: #2acaea;
