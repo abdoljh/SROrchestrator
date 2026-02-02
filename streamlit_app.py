@@ -199,11 +199,19 @@ def render_api_key_input_section():
             <small>Delete `Streamlit Secrets` to switch to production mode</small>
         </div>
         """, unsafe_allow_html=True)
-        
+####
         with st.sidebar.expander("📋 Active Developer Keys", expanded=False):
-            for key in dev_keys:
-                st.markdown(f"✅ **{key}** (from secrets)")
-            st.info("💡 These keys are loaded from `Streamlit Secrets` for development convenience.")
+            st.button(
+                "Refresh list",
+                help="Reload the list of active developer keys from the server.",
+            )
+            # rest of your content
+
+####
+        #with st.sidebar.expander("📋 Active Developer Keys", expanded=False):
+            #for key in dev_keys:
+                #st.markdown(f"✅ **{key}** (from secrets)")
+            #st.info("💡 These keys are loaded from `Streamlit Secrets` for development convenience.")
     
     st.sidebar.info("🔒 **User keys are temporary** - Lost when you refresh or close the tab (for your security!)")
     
