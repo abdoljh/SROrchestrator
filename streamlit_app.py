@@ -324,7 +324,7 @@ def render_api_key_input_section():
         )
         
         # Apply button
-        if st.button("✅ Apply Keys (This Session Only)", key="apply_keys", use_container_width=True):
+        if st.button("✅ Apply Keys (This Session Only)", key="apply_keys", width='stretch'):
             # Update session state for current engines
             st.session_state['user_s2_key'] = s2_key.strip()
             st.session_state['user_serp_key'] = serp_key.strip()
@@ -507,7 +507,7 @@ def create_download_buttons(output_dir):
                 data=f,
                 file_name=os.path.basename(zip_path),
                 mime='application/zip',
-                use_container_width=True
+                width='stretch'
             )
 
 def main():
@@ -727,10 +727,10 @@ def main():
         col1, col2, col3 = st.columns([2, 1, 1])
         
         with col1:
-            search_button = st.button("🚀 Start Search", type="primary", use_container_width=True)
+            search_button = st.button("🚀 Start Search", type="primary", width='stretch')
         
         with col2:
-            if st.button("🔄 Clear Cache", use_container_width=True):
+            if st.button("🔄 Clear Cache", width='stretch'):
                 st.cache_data.clear()
                 st.success("Cache cleared!")
         
@@ -966,7 +966,7 @@ def main():
                         # ✅ ENHANCED: Interactive table with clickable URLs and custom styling
                         st.dataframe(
                             styled_df,
-                            use_container_width=True,
+                            width='stretch',
                             height=400,
                             hide_index=False,
                             column_config={
@@ -1004,13 +1004,13 @@ def main():
                             bookmark_col1, bookmark_col2 = st.columns(2)
                             
                             with bookmark_col1:
-                                if st.button("⭐ Add Bookmarks", use_container_width=True):
+                                if st.button("⭐ Add Bookmarks", width='stretch'):
                                     st.session_state['bookmarked_papers'].update(selected_for_bookmark)
                                     st.success(f"Added {len(selected_for_bookmark)} bookmark(s)!")
                                     st.rerun()
                             
                             with bookmark_col2:
-                                if st.button("🗑️ Clear All", use_container_width=True):
+                                if st.button("🗑️ Clear All", width='stretch'):
                                     st.session_state['bookmarked_papers'].clear()
                                     st.success("All bookmarks cleared!")
                                     st.rerun()
@@ -1038,7 +1038,7 @@ def main():
                                         data=csv_data,
                                         file_name=f"selected_{len(selected_for_download)}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                                         mime="text/csv",
-                                        use_container_width=True
+                                        width='stretch'
                                     )
                                 
                                 with download_col2:
@@ -1048,7 +1048,7 @@ def main():
                                         data=json_data,
                                         file_name=f"selected_{len(selected_for_download)}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
                                         mime="application/json",
-                                        use_container_width=True
+                                        width='stretch'
                                     )
                             else:
                                 st.info("Select papers above to enable download")
@@ -1067,7 +1067,7 @@ def main():
                                     data=csv_data,
                                     file_name=f"filtered_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                                     mime="text/csv",
-                                    use_container_width=True
+                                    width='stretch'
                                 )
                             
                             with export_col2:
@@ -1077,7 +1077,7 @@ def main():
                                     data=json_data,
                                     file_name=f"filtered_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
                                     mime="application/json",
-                                    use_container_width=True
+                                    width='stretch'
                                 )
                         
                         # ✅ NEW: Quick Access to Bookmarked Papers
@@ -1114,7 +1114,7 @@ def main():
                                         data=bookmarks_csv,
                                         file_name=f"bookmarks_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                                         mime="text/csv",
-                                        use_container_width=True
+                                        width='stretch'
                                     )
                                 
                                 with bookmark_export_col2:
@@ -1124,7 +1124,7 @@ def main():
                                         data=bookmarks_json,
                                         file_name=f"bookmarks_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
                                         mime="application/json",
-                                        use_container_width=True
+                                        width='stretch'
                                     )
                     
                     st.divider()
@@ -1139,7 +1139,7 @@ def main():
             chart_path = os.path.join(output_dir, "research_analytics.png")
             if os.path.exists(chart_path):
                 st.subheader("📈 Research Analytics")
-                st.image(chart_path, use_container_width=True)
+                st.image(chart_path, width='stretch')
                 st.divider()
             
             # Results preview
