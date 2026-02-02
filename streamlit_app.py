@@ -53,6 +53,9 @@ st.markdown("""
         border-left: 4px solid #28a745;
         border-radius: 0.3rem;
         margin: 1rem 0;
+        font-weight: bold;
+        color: #00b894;  /* Green for success */
+        line-height: 1.25; /* Line height relative to the font size */
     }
     .warning-box {
         padding: 1rem;
@@ -60,7 +63,7 @@ st.markdown("""
         border-left: 4px solid #ffc107;
         border-radius: 0.3rem;
         margin: 1rem 0;
-    }
+    } 
     .error-box {
         padding: 1rem;
         background-color: #f8d7da;
@@ -76,12 +79,13 @@ st.markdown("""
         margin: 1rem 0;
     }
     .dev-mode-badge {
-        padding: 0.5rem;
+        padding: 1rem;
         background-color: #ffeaa7;
         border-left: 4px solid #fdcb6e;
         border-radius: 0.3rem;
         margin: 1rem 0;
         font-weight: bold;
+        color: #d63031;  /* Red for warnings */
     }
     </style>
 """, unsafe_allow_html=True)
@@ -192,14 +196,14 @@ def render_api_key_input_section():
         <div class="dev-mode-badge">
             🔧 DEV MODE ACTIVE<br>
             Pre-configured keys detected: {len(dev_keys)}<br>
-            <small>Delete secrets.toml to switch to production mode</small>
+            <small>Delete Streamlit Secrets to switch to production mode</small>
         </div>
         """, unsafe_allow_html=True)
         
         with st.sidebar.expander("📋 Active Developer Keys", expanded=False):
             for key in dev_keys:
                 st.markdown(f"✅ **{key}** (from secrets)")
-            st.info("💡 These keys are loaded from `secrets.toml` for development convenience.")
+            st.info("💡 These keys are loaded from `Streamlit Secrets` for development convenience.")
     
     st.sidebar.info("🔒 **User keys are temporary** - Lost when you refresh or close the tab (for your security!)")
     
@@ -321,7 +325,7 @@ def render_api_key_input_section():
         )
         
         # Apply button
-        if st.button("✅ Apply Keys (This Session Only)", key="apply_keys", use_container_width=True):
+        if st.button("✅ Apply Keys (This Session Only)", key="apply_keys", width='stretch'):
             # Update session state for current engines
             st.session_state['user_s2_key'] = s2_key.strip()
             st.session_state['user_serp_key'] = serp_key.strip()
@@ -504,7 +508,7 @@ def create_download_buttons(output_dir):
                 data=f,
                 file_name=os.path.basename(zip_path),
                 mime='application/zip',
-                use_container_width=True
+                width='stretch'
             )
 
 def main():
@@ -518,7 +522,7 @@ def main():
     # Check and display dev mode status
     is_dev_mode, dev_keys = check_dev_mode()
     if is_dev_mode:
-        st.info(f"🔧 **Development Mode Active** - Using {len(dev_keys)} pre-configured API key(s) from secrets.toml")
+        st.info(f"🔧 **Development Mode Active** - Using {len(dev_keys)} pre-configured API key(s) from `Streamlit Secrets`")
     
     # Sidebar - Configuration
     with st.sidebar:
@@ -724,10 +728,10 @@ def main():
         col1, col2, col3 = st.columns([2, 1, 1])
         
         with col1:
-            search_button = st.button("🚀 Start Search", type="primary", use_container_width=True)
+            search_button = st.button("🚀 Start Search", type="primary", width='stretch')
         
         with col2:
-            if st.button("🔄 Clear Cache", use_container_width=True):
+            if st.button("🔄 Clear Cache", width='stretch'):
                 st.cache_data.clear()
                 st.success("Cache cleared!")
         
@@ -963,7 +967,7 @@ def main():
                         # ✅ ENHANCED: Interactive table with clickable URLs and custom styling
                         st.dataframe(
                             styled_df,
-                            use_container_width=True,
+                            width='stretch',
                             height=400,
                             hide_index=False,
                             column_config={
@@ -1001,13 +1005,13 @@ def main():
                             bookmark_col1, bookmark_col2 = st.columns(2)
                             
                             with bookmark_col1:
-                                if st.button("⭐ Add Bookmarks", use_container_width=True):
+                                if st.button("⭐ Add Bookmarks", width='stretch'):
                                     st.session_state['bookmarked_papers'].update(selected_for_bookmark)
                                     st.success(f"Added {len(selected_for_bookmark)} bookmark(s)!")
                                     st.rerun()
                             
                             with bookmark_col2:
-                                if st.button("🗑️ Clear All", use_container_width=True):
+                                if st.button("🗑️ Clear All", width='stretch'):
                                     st.session_state['bookmarked_papers'].clear()
                                     st.success("All bookmarks cleared!")
                                     st.rerun()
@@ -1035,7 +1039,7 @@ def main():
                                         data=csv_data,
                                         file_name=f"selected_{len(selected_for_download)}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                                         mime="text/csv",
-                                        use_container_width=True
+                                        width='stretch'
                                     )
                                 
                                 with download_col2:
@@ -1045,7 +1049,7 @@ def main():
                                         data=json_data,
                                         file_name=f"selected_{len(selected_for_download)}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
                                         mime="application/json",
-                                        use_container_width=True
+                                        width='stretch'
                                     )
                             else:
                                 st.info("Select papers above to enable download")
@@ -1064,7 +1068,7 @@ def main():
                                     data=csv_data,
                                     file_name=f"filtered_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                                     mime="text/csv",
-                                    use_container_width=True
+                                    width='stretch'
                                 )
                             
                             with export_col2:
@@ -1074,7 +1078,7 @@ def main():
                                     data=json_data,
                                     file_name=f"filtered_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
                                     mime="application/json",
-                                    use_container_width=True
+                                    width='stretch'
                                 )
                         
                         # ✅ NEW: Quick Access to Bookmarked Papers
@@ -1111,7 +1115,7 @@ def main():
                                         data=bookmarks_csv,
                                         file_name=f"bookmarks_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                                         mime="text/csv",
-                                        use_container_width=True
+                                        width='stretch'
                                     )
                                 
                                 with bookmark_export_col2:
@@ -1121,7 +1125,7 @@ def main():
                                         data=bookmarks_json,
                                         file_name=f"bookmarks_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
                                         mime="application/json",
-                                        use_container_width=True
+                                        width='stretch'
                                     )
                     
                     st.divider()
@@ -1136,7 +1140,7 @@ def main():
             chart_path = os.path.join(output_dir, "research_analytics.png")
             if os.path.exists(chart_path):
                 st.subheader("📈 Research Analytics")
-                st.image(chart_path, use_container_width=True)
+                st.image(chart_path, width='stretch')
                 st.divider()
             
             # Results preview
