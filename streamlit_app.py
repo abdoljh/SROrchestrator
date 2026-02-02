@@ -196,7 +196,7 @@ def render_api_key_input_section():
         <div class="dev-mode-badge">
             🔧 DEV MODE ACTIVE<br>
             Pre-configured keys detected: {len(dev_keys)}<br>
-            <small>Delete `Streamlit Secrets` to switch to production mode</small>
+            <small>Delete Streamlit Secrets to switch to production mode</small>
         </div>
         """, unsafe_allow_html=True)
         
