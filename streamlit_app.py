@@ -53,6 +53,8 @@ st.markdown("""
         border-left: 4px solid #28a745;
         border-radius: 0.3rem;
         margin: 1rem 0;
+        font-weight: bold;
+        color: #00b894;  /* Green for success */
     }
     .warning-box {
         padding: 1rem;
@@ -60,7 +62,7 @@ st.markdown("""
         border-left: 4px solid #ffc107;
         border-radius: 0.3rem;
         margin: 1rem 0;
-    }
+    } 
     .error-box {
         padding: 1rem;
         background-color: #f8d7da;
@@ -200,7 +202,7 @@ def render_api_key_input_section():
         with st.sidebar.expander("📋 Active Developer Keys", expanded=False):
             for key in dev_keys:
                 st.markdown(f"✅ **{key}** (from secrets)")
-            st.info("💡 These keys are loaded from `secrets.toml` for development convenience.")
+            st.info("💡 These keys are loaded from `Streamlit Secrets` for development convenience.")
     
     st.sidebar.info("🔒 **User keys are temporary** - Lost when you refresh or close the tab (for your security!)")
     
@@ -519,7 +521,7 @@ def main():
     # Check and display dev mode status
     is_dev_mode, dev_keys = check_dev_mode()
     if is_dev_mode:
-        st.info(f"🔧 **Development Mode Active** - Using {len(dev_keys)} pre-configured API key(s) from secrets.toml")
+        st.info(f"🔧 **Development Mode Active** - Using {len(dev_keys)} pre-configured API key(s) from `Streamlit Secrets`")
     
     # Sidebar - Configuration
     with st.sidebar:
