@@ -55,7 +55,7 @@ st.markdown("""
         margin: 1rem 0;
         font-weight: bold;
         color: #00b894;  /* Green for success */
-        line-height: 1.5; /* Line height will be 1.5 times the font size */
+        line-height: 1.0; /* Line height will be 1.5 times the font size */
     }
     .warning-box {
         padding: 1rem;
