@@ -55,6 +55,7 @@ st.markdown("""
         margin: 1rem 0;
         font-weight: bold;
         color: #00b894;  /* Green for success */
+        line-height: 1.5; /* Line height will be 1.5 times the font size */
     }
     .warning-box {
         padding: 1rem;
@@ -195,7 +196,7 @@ def render_api_key_input_section():
         <div class="dev-mode-badge">
             🔧 DEV MODE ACTIVE<br>
             Pre-configured keys detected: {len(dev_keys)}<br>
-            <small>Delete Streamlit Secrets to switch to production mode</small>
+            <small>Delete `Streamlit Secrets` to switch to production mode</small>
         </div>
         """, unsafe_allow_html=True)
         
