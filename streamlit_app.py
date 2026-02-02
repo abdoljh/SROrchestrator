@@ -48,6 +48,7 @@ st.markdown("""
         margin: 0.5rem 0;
     }
     .success-box {
+        font-family: "Times New Roman", Times, serif;
         padding: 1rem;
         background-color: #d4edda;
         border-left: 4px solid #28a745;
@@ -55,7 +56,7 @@ st.markdown("""
         margin: 1rem 0;
         font-weight: bold;
         color: #00b894;  /* Green for success */
-        line-height: 1.0; /* Line height will be 1.5 times the font size */
+        line-height: 1.25; /* Line height relative to the font size */
     }
     .warning-box {
         padding: 1rem;
