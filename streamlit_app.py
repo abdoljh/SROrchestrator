@@ -84,8 +84,6 @@ st.markdown("""
         font-weight: bold;
         color: #d63031;  /* Red for warnings */
     }
-    /* #d63031 - Red for warnings */
-    /* #2d3436;  Dark gray for readability */
     </style>
 """, unsafe_allow_html=True)
 
@@ -195,7 +193,7 @@ def render_api_key_input_section():
         <div class="dev-mode-badge">
             🔧 DEV MODE ACTIVE<br>
             Pre-configured keys detected: {len(dev_keys)}<br>
-            <small>Delete secrets.toml to switch to production mode</small>
+            <small>Delete Streamlit Secrets to switch to production mode</small>
         </div>
         """, unsafe_allow_html=True)
         
