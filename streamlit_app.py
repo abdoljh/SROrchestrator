@@ -1867,35 +1867,12 @@ def display_results_preview(results, limit=5):
                     st.markdown(f"[🔗 View Paper]({paper['url']})")
 
 def create_download_buttons(output_dir):
-    """Create download buttons for all generated files"""
+    """Create download button for ZIP archive of all results"""
     st.subheader("📥 Download Results")
     
-    col1, col2, col3 = st.columns(3)
-    
-    files_to_download = {
-        'MASTER_REPORT_FINAL.csv': ('CSV Report', 'text/csv', col1),
-        'EXECUTIVE_SUMMARY.txt': ('Executive Summary', 'text/plain', col2),
-        'RESEARCH_GAPS.txt': ('Research Gaps', 'text/plain', col3),
-        'research_data.json': ('JSON Data', 'application/json', col1),
-        'references.bib': ('BibTeX', 'text/plain', col2),
-        'research_analytics.png': ('Analytics Chart', 'image/png', col3),
-        'SESSION_REPORT.txt': ('Session Report', 'text/plain', col1)
-    }
-    
-    for filename, (label, mime_type, column) in files_to_download.items():
-        filepath = os.path.join(output_dir, filename)
-        if os.path.exists(filepath):
-            with open(filepath, 'rb') as f:
-                with column:
-                    st.download_button(
-                        label=f"⬇️ {label}",
-                        data=f,
-                        file_name=filename,
-                        mime=mime_type
-                    )
-    
-    # ZIP download
+    # Check if ZIP already exists
     zip_path = f"{output_dir}.zip"
+    
     if os.path.exists(zip_path):
         with open(zip_path, 'rb') as f:
             st.download_button(
@@ -1903,8 +1880,25 @@ def create_download_buttons(output_dir):
                 data=f,
                 file_name=os.path.basename(zip_path),
                 mime='application/zip',
+                type="primary",
                 use_container_width=True
             )
+        
+        # Show what's included in the ZIP
+        with st.expander("📋 Contents of ZIP Archive"):
+            files_included = [
+                "✅ MASTER_REPORT_FINAL.csv - Complete dataset",
+                "✅ EXECUTIVE_SUMMARY.txt - Key findings",
+                "✅ RESEARCH_GAPS.txt - Identified gaps",
+                "✅ research_data.json - Full JSON export",
+                "✅ references.bib - BibTeX citations",
+                "✅ research_analytics.png - Visualization chart",
+                "✅ SESSION_REPORT.txt - Search metadata"
+            ]
+            for item in files_included:
+                st.markdown(item)
+    else:
+        st.warning("⚠️ ZIP archive not found. The orchestrator should have created it automatically.")
 
 # ================================================================================
 # ENHANCED PIPELINE EXECUTION
@@ -2088,7 +2082,7 @@ def reset_report_system():
     }
 
 # ================================================================================
-# MAIN APPLICATION
+# MAIN APPLICATION - CONTINUES IN NEXT PART DUE TO LENGTH
 # ================================================================================
 
 def main():
@@ -2107,6 +2101,286 @@ def main():
     # Sidebar - Configuration
     with st.sidebar:
         st.header("⚙️ Configuration")
-        
-        # API Key Input Section
         render_api_key_input_section()
+        st.divider()
+        
+        api_keys = load_api_keys()
+        key_status = check_api_keys(api_keys)
+        available_engines = get_available_engines(key_status)
+        
+        st.subheader("🔍 Available Engines")
+        for engine in ["Semantic Scholar", "Google Scholar", "CORE", "SCOPUS", "Springer Nature"]:
+            status = key_status.get(engine.lower().replace(" ", "_").replace("scholar", "s2" if "Semantic" in engine else "serp"), "❌")
+            st.markdown(f"{status} **{engine}**" if status == "✅" else f"❌ {engine} *(no key)*")
+        for engine in ["arXiv", "PubMed", "Crossref/DOI", "OpenAlex", "Europe PMC", "PLOS", "SSRN", "DeepDyve", "Wiley", "Taylor & Francis", "ACM Digital Library", "DBLP", "SAGE Journals"]:
+            st.markdown(f"✅ **{engine}**")
+        
+        st.info(f"**Active Engines:** {len(available_engines)}/18")
+        st.divider()
+        
+        st.subheader("🔍 Search Parameters")
+        limit_per_engine = st.slider("Results per engine", 5, 50, 25, 5)
+        st.divider()
+        
+        st.subheader("🎛️ Advanced Settings")
+        with st.expander("Scoring & Ranking"):
+            abstract_limit = st.number_input("Deep Look Limit", 1, 20, 10)
+            citation_weight = st.slider("Citation Weight", 0.1, 5.0, 1.5, 0.1)
+            source_weight = st.number_input("Source Weight", 10, 500, 100, 10)
+            high_consensus_threshold = st.number_input("High Consensus Threshold", 2, 7, 4)
+        
+        with st.expander("Recency Boost"):
+            recency_boost = st.checkbox("Enable Recency Boost", True)
+            recency_years = st.slider("Recent Paper Window (years)", 1, 10, 5)
+            recency_multiplier = st.slider("Boost Multiplier", 1.0, 2.0, 1.2, 0.1)
+        
+        with st.expander("Output Options"):
+            enable_alerts = st.checkbox("Enable Consensus Alerts", True)
+            enable_visualization = st.checkbox("Enable Visualizations", True)
+            export_formats = st.multiselect("Export Formats", ['csv', 'json', 'bibtex'], ['csv', 'json', 'bibtex'])
+        
+        config = {
+            'abstract_limit': abstract_limit, 'high_consensus_threshold': high_consensus_threshold,
+            'citation_weight': citation_weight, 'source_weight': source_weight,
+            'enable_alerts': enable_alerts, 'enable_visualization': enable_visualization,
+            'export_formats': export_formats, 'recency_boost': recency_boost,
+            'recency_years': recency_years, 'recency_multiplier': recency_multiplier
+        }
+    
+    # Main tabs
+    tab1, tab2, tab3, tab4 = st.tabs(["🔍 Search", "📊 Results", "📝 Report Writer", "ℹ️ About"])
+    
+    # TAB 1: SEARCH
+    with tab1:
+        st.header("Search Academic Literature")
+        if len(available_engines) == 18:
+            st.success("✅ All 18 engines active!")
+        else:
+            st.info(f"ℹ️ Using {len(available_engines)} engines")
+        
+        search_query = st.text_input("Enter your research query:", placeholder="e.g., Machine Learning in Healthcare")
+        col1, col2 = st.columns([2, 1])
+        with col1:
+            search_button = st.button("🚀 Start Search", type="primary", use_container_width=True)
+        with col2:
+            if st.button("🔄 Clear Cache", use_container_width=True):
+                st.cache_data.clear()
+                st.success("Cache cleared!")
+        
+        if search_button:
+            if not search_query:
+                st.error("Please enter a search query!")
+            else:
+                st.session_state['search_query'] = search_query
+                st.session_state['config'] = config
+                st.session_state['limit_per_engine'] = limit_per_engine
+                
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+                
+                try:
+                    status_text.text("🔧 Initializing...")
+                    progress_bar.progress(10)
+                    
+                    for key, value in api_keys.items():
+                        if key != 'email' and value and len(value) > 5:
+                            os.environ[f"{key.upper()}_API_KEY"] = value
+                        elif key == 'email' and value:
+                            os.environ['USER_EMAIL'] = value
+                    
+                    orchestrator = ResearchOrchestrator(config=config)
+                    status_text.text(f"🔍 Searching {len(available_engines)} databases...")
+                    progress_bar.progress(30)
+                    
+                    results = orchestrator.run_search(search_query, limit_per_engine=limit_per_engine)
+                    status_text.text("📝 Generating reports...")
+                    progress_bar.progress(70)
+                    
+                    orchestrator.save_master_csv(results, search_query)
+                    progress_bar.progress(100)
+                    status_text.text("✅ Search completed!")
+                    
+                    st.session_state['results'] = results
+                    st.session_state['output_dir'] = orchestrator.output_dir
+                    st.session_state['metadata'] = orchestrator.session_metadata
+                    
+                    st.markdown(f"""<div class="success-box"><h3>✅ Search Completed!</h3>
+                    <p><strong>Papers:</strong> {len(results)}</p></div>""", unsafe_allow_html=True)
+                    st.info("👉 Switch to 'Results' or 'Report Writer' tabs!")
+                    
+                except Exception as e:
+                    st.error(f"❌ Error: {str(e)}")
+    
+    # TAB 2: RESULTS
+    with tab2:
+        st.header("Search Results & Analytics")
+        
+        if 'results' in st.session_state and st.session_state['results']:
+            results = st.session_state['results']
+            output_dir = st.session_state.get('output_dir', '')
+            
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Total Papers", len(results))
+            with col2:
+                high_consensus = sum(1 for p in results if p.get('source_count', 0) >= config['high_consensus_threshold'])
+                st.metric("High Consensus", high_consensus)
+            with col3:
+                avg_cites = sum(p.get('citations_int', 0) for p in results) / len(results) if results else 0
+                st.metric("Avg Citations", f"{avg_cites:.1f}")
+            with col4:
+                st.metric("Engines", len(st.session_state.get('metadata', {}).get('successful_engines', [])))
+            
+            st.divider()
+            
+            chart_path = os.path.join(output_dir, "research_analytics.png")
+            if os.path.exists(chart_path):
+                st.subheader("📈 Analytics")
+                st.image(chart_path, use_container_width=True)
+            
+            display_results_preview(results, limit=10)
+            st.divider()
+            
+            if output_dir and os.path.exists(output_dir):
+                create_download_buttons(output_dir)
+        else:
+            st.info("👈 No results yet. Start a search!")
+    
+    # TAB 3: REPORT WRITER
+    with tab3:
+        st.header("📝 Report Writer (Strict Mode)")
+        
+        try:
+            anthropic_key = st.secrets["ANTHROPIC_API_KEY"]
+            api_available = True
+        except:
+            api_available = False
+            st.error("⚠️ Anthropic API key not configured")
+        
+        if api_available:
+            if st.session_state.report_step == 'input':
+                st.markdown("### Configuration")
+                
+                if 'results' in st.session_state:
+                    st.success(f"✅ Existing results: '{st.session_state.get('search_query')}'")
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    topic = st.text_input("Topic *", st.session_state.report_form_data['topic'])
+                    subject = st.text_input("Subject *", st.session_state.report_form_data['subject'])
+                with col2:
+                    researcher = st.text_input("Researcher *", st.session_state.report_form_data['researcher'])
+                    institution = st.text_input("Institution *", st.session_state.report_form_data['institution'])
+                
+                col3, col4 = st.columns(2)
+                with col3:
+                    date = st.date_input("Date", datetime.strptime(st.session_state.report_form_data['date'], '%Y-%m-%d'))
+                with col4:
+                    style = st.selectbox("Citation Style", ["IEEE", "APA"])
+                
+                max_sources = st.slider("Max sources", 10, 100, 25, 5)
+                
+                if max_sources <= 25:
+                    st.success(f"✅ Conservative ({max_sources} sources) - ~4-6 min")
+                elif max_sources <= 50:
+                    st.warning(f"⚠️ Balanced ({max_sources} sources) - ~6-10 min")
+                else:
+                    st.error(f"🔴 Comprehensive ({max_sources} sources) - ~10-15 min, higher cost")
+                
+                st.session_state.report_form_data.update({
+                    'topic': topic, 'subject': subject, 'researcher': researcher,
+                    'institution': institution, 'date': date.strftime('%Y-%m-%d'),
+                    'citation_style': style, 'max_sources': max_sources
+                })
+                
+                valid = all([topic, subject, researcher, institution])
+                
+                st.info("""**Features:** Claim verification, source authority ranking, citation integrity""")
+                
+                if st.button("🚀 Generate Report", disabled=not valid, type="primary", use_container_width=True):
+                    execute_report_pipeline()
+                    st.rerun()
+            
+            elif st.session_state.report_step == 'processing':
+                st.markdown("### 🔄 Generating Report")
+                col1, col2 = st.columns([4, 1])
+                with col1:
+                    st.markdown(f"**{st.session_state.report_progress['stage']}**")
+                    st.progress(st.session_state.report_progress['percent'] / 100)
+                with col2:
+                    st.metric("Progress", f"{st.session_state.report_progress['percent']}%")
+                
+                st.info(st.session_state.report_progress['detail'])
+                
+                if st.session_state.report_processing:
+                    time.sleep(3)
+                    st.rerun()
+            
+            elif st.session_state.report_step == 'complete':
+                st.success("✅ Report Generated!")
+                
+                ver_results = st.session_state.get('verification_results', {})
+                issues = len(ver_results.get('verification', {}).get('violations', []))
+                
+                if issues == 0:
+                    st.markdown('<span class="verification-badge verified">✓ Verified</span>', unsafe_allow_html=True)
+                else:
+                    st.markdown(f'<span class="verification-badge unverified">⚠ {issues} Issues</span>', unsafe_allow_html=True)
+                
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("Sources", len(st.session_state.report_research['sources']))
+                with col2:
+                    st.metric("API Calls", st.session_state.report_api_calls)
+                with col3:
+                    exec_time = st.session_state.report_execution_time
+                    st.metric("Time", f"{int(exec_time//60)}m {int(exec_time%60)}s")
+                with col4:
+                    st.metric("Issues", issues)
+                
+                if st.session_state.report_html:
+                    filename = f"{st.session_state.report_form_data['topic'].replace(' ', '_')}_Report.html"
+                    st.download_button(
+                        "📥 Download HTML Report",
+                        data=st.session_state.report_html,
+                        file_name=filename,
+                        mime="text/html",
+                        type="primary",
+                        use_container_width=True
+                    )
+                
+                if st.button("🔄 Generate Another", type="secondary", use_container_width=True):
+                    reset_report_system()
+                    st.rerun()
+            
+            elif st.session_state.report_step == 'error':
+                st.error("❌ Error Occurred")
+                st.warning(st.session_state.report_progress['detail'])
+                if st.button("🔄 Try Again", type="primary", use_container_width=True):
+                    reset_report_system()
+                    st.rerun()
+    
+    # TAB 4: ABOUT
+    with tab4:
+        st.header("About SROrch")
+        st.markdown("""
+        ### 🔬 Scholarly Research Orchestrator
+        
+        **Version:** 2.2 - Token Management & Enhanced Reliability
+        
+        **Features:**
+        - ✅ 18 Academic databases (13 free, 5 premium)
+        - ✅ Strict claim verification
+        - ✅ Source authority ranking
+        - ✅ Token management (auto-reduction)
+        - ✅ Professional HTML reports
+        
+        **Supported Databases:**
+        - Premium: Semantic Scholar, Google Scholar, CORE, SCOPUS, Springer
+        - Free: arXiv, PubMed, Crossref, OpenAlex, Europe PMC, PLOS, SSRN, DeepDyve, Wiley, Taylor & Francis, ACM, DBLP, SAGE
+        
+        **License:** MIT
+        """)
+
+if __name__ == "__main__":
+    main()
