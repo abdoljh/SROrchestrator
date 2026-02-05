@@ -1,5 +1,5 @@
 """
-SROrch Streamlit Interface - COMPLETE VERSION with Strict Verification
+SROrch Streamlit Interface - FIXED Anthropic API Integration
 A comprehensive web interface for Scholarly Research Orchestrator with 
 integrated academic report generation and factual integrity controls
 """
@@ -107,13 +107,6 @@ st.markdown("""
     .unverified {
         background-color: #f8d7da;
         color: #721c24;
-    }
-    .critical-issue {
-        background-color: #f8d7da;
-        border: 2px solid #dc3545;
-        padding: 0.5rem;
-        border-radius: 0.3rem;
-        margin: 0.5rem 0;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -601,16 +594,15 @@ def enforce_source_coverage(draft: Dict, sources: List[Dict], min_coverage: floa
 # ================================================================================
 
 def get_secret_or_empty(key_name):
-    """Safely retrieve a secret from Streamlit secrets, return empty string if not found."""
+    """Safely retrieve a secret from Streamlit secrets"""
     try:
         return st.secrets.get(key_name, '')
     except (FileNotFoundError, KeyError, AttributeError):
         return ''
 
 def check_dev_mode():
-    """Check if running in development mode (secrets configured)"""
+    """Check if running in development mode"""
     dev_keys = []
-    
     key_mappings = {
         'S2_API_KEY': 'Semantic Scholar',
         'SERP_API_KEY': 'Google Scholar',
@@ -618,15 +610,13 @@ def check_dev_mode():
         'SCOPUS_API_KEY': 'SCOPUS',
         'META_SPRINGER_API_KEY': 'Springer Nature'
     }
-    
     for key, name in key_mappings.items():
         if get_secret_or_empty(key):
             dev_keys.append(name)
-    
     return len(dev_keys) > 0, dev_keys
 
 def safe_int(value, default=0):
-    """Safely convert value to int, handling 'N/A', None, strings, etc."""
+    """Safely convert value to int"""
     if value is None:
         return default
     if isinstance(value, int):
@@ -643,76 +633,29 @@ def safe_int(value, default=0):
         return default
 
 def initialize_session_state():
-    """Initialize session state with empty API keys and report writer state"""
-    # Search engine API keys
-    if 'user_s2_key' not in st.session_state:
-        st.session_state['user_s2_key'] = ''
-    if 'user_serp_key' not in st.session_state:
-        st.session_state['user_serp_key'] = ''
-    if 'user_core_key' not in st.session_state:
-        st.session_state['user_core_key'] = ''
-    if 'user_scopus_key' not in st.session_state:
-        st.session_state['user_scopus_key'] = ''
-    if 'user_springer_key' not in st.session_state:
-        st.session_state['user_springer_key'] = ''
-    if 'user_email' not in st.session_state:
-        st.session_state['user_email'] = 'researcher@example.com'
+    """Initialize session state"""
+    defaults = {
+        'user_s2_key': '', 'user_serp_key': '', 'user_core_key': '',
+        'user_scopus_key': '', 'user_springer_key': '', 'user_email': 'researcher@example.com',
+        'report_step': 'input',
+        'report_form_data': {
+            'topic': '', 'subject': '', 'researcher': '', 'institution': '',
+            'date': datetime.now().strftime('%Y-%m-%d'), 'citation_style': 'IEEE', 'max_sources': 25
+        },
+        'report_progress': {'stage': '', 'detail': '', 'percent': 0},
+        'report_research': {'subtopics': [], 'sources': [], 'phrase_variations': []},
+        'report_draft': None, 'report_final': None, 'report_html': None,
+        'report_processing': False, 'report_api_calls': 0,
+        'report_start_time': None, 'report_execution_time': None,
+        'verification_results': None, 'strict_mode': True
+    }
     
-    # Report writer state
-    if 'report_step' not in st.session_state:
-        st.session_state.report_step = 'input'
-    
-    if 'report_form_data' not in st.session_state:
-        st.session_state.report_form_data = {
-            'topic': '',
-            'subject': '',
-            'researcher': '',
-            'institution': '',
-            'date': datetime.now().strftime('%Y-%m-%d'),
-            'citation_style': 'IEEE',
-            'max_sources': 25
-        }
-    
-    if 'report_progress' not in st.session_state:
-        st.session_state.report_progress = {'stage': '', 'detail': '', 'percent': 0}
-    
-    if 'report_research' not in st.session_state:
-        st.session_state.report_research = {
-            'subtopics': [],
-            'sources': [],
-            'phrase_variations': []
-        }
-    
-    if 'report_draft' not in st.session_state:
-        st.session_state.report_draft = None
-    
-    if 'report_final' not in st.session_state:
-        st.session_state.report_final = None
-    
-    if 'report_html' not in st.session_state:
-        st.session_state.report_html = None
-    
-    if 'report_processing' not in st.session_state:
-        st.session_state.report_processing = False
-    
-    if 'report_api_calls' not in st.session_state:
-        st.session_state.report_api_calls = 0
-    
-    if 'report_start_time' not in st.session_state:
-        st.session_state.report_start_time = None
-    
-    if 'report_execution_time' not in st.session_state:
-        st.session_state.report_execution_time = None
-    
-    # NEW: Verification state
-    if 'verification_results' not in st.session_state:
-        st.session_state.verification_results = None
-    
-    if 'strict_mode' not in st.session_state:
-        st.session_state.strict_mode = True
+    for key, value in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
 
 def load_api_keys():
-    """Load API keys with intelligent fallback strategy"""
+    """Load API keys with fallback"""
     return {
         's2': st.session_state.get('user_s2_key', '').strip() or get_secret_or_empty('S2_API_KEY'),
         'serp': st.session_state.get('user_serp_key', '').strip() or get_secret_or_empty('SERP_API_KEY'),
@@ -765,61 +708,48 @@ def render_api_key_input_section():
         - Automatically cleared on refresh
         """)
         
-        # API Key Inputs
         s2_key = st.text_input(
             "Semantic Scholar API Key",
-            value="",
-            type="password",
+            value="", type="password",
             help="Get free key at: https://www.semanticscholar.org/product/api",
-            key="s2_input_widget",
-            placeholder="Enter your S2 API key"
+            key="s2_input_widget", placeholder="Enter your S2 API key"
         )
         
         serp_key = st.text_input(
             "SERP API Key (Google Scholar)",
-            value="",
-            type="password",
+            value="", type="password",
             help="Get key at: https://serpapi.com/",
-            key="serp_input_widget",
-            placeholder="Enter your SERP API key"
+            key="serp_input_widget", placeholder="Enter your SERP API key"
         )
         
         core_key = st.text_input(
             "CORE API Key",
-            value="",
-            type="password",
+            value="", type="password",
             help="Get key at: https://core.ac.uk/services/api",
-            key="core_input_widget",
-            placeholder="Enter your CORE API key"
+            key="core_input_widget", placeholder="Enter your CORE API key"
         )
         
         scopus_key = st.text_input(
             "SCOPUS API Key",
-            value="",
-            type="password",
+            value="", type="password",
             help="Get key at: https://dev.elsevier.com/",
-            key="scopus_input_widget",
-            placeholder="Enter your SCOPUS API key"
+            key="scopus_input_widget", placeholder="Enter your SCOPUS API key"
         )
         
         springer_key = st.text_input(
             "Springer Nature API Key",
-            value="",
-            type="password",
+            value="", type="password",
             help="Get key at: https://dev.springernature.com/",
-            key="springer_input_widget",
-            placeholder="Enter your Springer API key"
+            key="springer_input_widget", placeholder="Enter your Springer API key"
         )
         
         email = st.text_input(
             "Your Email",
             value="researcher@example.com",
             help="Used for API requests to arXiv, PubMed, etc.",
-            key="email_input_widget",
-            placeholder="your.email@example.com"
+            key="email_input_widget", placeholder="your.email@example.com"
         )
         
-        # Apply button
         if st.button("✅ Apply Keys (This Session Only)", key="apply_keys", use_container_width=True):
             st.session_state['user_s2_key'] = s2_key.strip()
             st.session_state['user_serp_key'] = serp_key.strip()
@@ -827,11 +757,9 @@ def render_api_key_input_section():
             st.session_state['user_scopus_key'] = scopus_key.strip()
             st.session_state['user_springer_key'] = springer_key.strip()
             st.session_state['user_email'] = email.strip()
-            
             st.success("✅ Keys applied for this session!")
             st.rerun()
         
-        # Show active keys
         api_keys = load_api_keys()
         active_keys = []
         sources = []
@@ -857,7 +785,6 @@ def render_api_key_input_section():
             for i, key in enumerate(active_keys):
                 source = "🔧" if sources[i] == "secrets" else "👤"
                 key_source_info.append(f"{source} {key}")
-            
             st.success(f"🔑 Active: {', '.join(key_source_info)}")
             st.caption("🔧 = from secrets | 👤 = user input")
         else:
@@ -866,21 +793,17 @@ def render_api_key_input_section():
 def check_api_keys(api_keys):
     """Check which API keys are configured and valid"""
     status = {}
-    
     status['s2'] = "✅" if api_keys.get('s2') and len(api_keys.get('s2', '')) > 5 else "❌"
     status['serp'] = "✅" if api_keys.get('serp') and len(api_keys.get('serp', '')) > 5 else "❌"
     status['core'] = "✅" if api_keys.get('core') and len(api_keys.get('core', '')) > 5 else "❌"
     status['scopus'] = "✅" if api_keys.get('scopus') and len(api_keys.get('scopus', '')) > 5 else "❌"
     status['springer'] = "✅" if api_keys.get('springer') and len(api_keys.get('springer', '')) > 5 else "❌"
     status['email'] = "✅" if api_keys.get('email') and api_keys['email'] != 'researcher@example.com' else "⚠️"
-    
     return status
 
 def get_available_engines(key_status):
     """Determine which engines are available based on API keys"""
     available = []
-    
-    # Premium Engines
     if key_status['s2'] == "✅":
         available.append("Semantic Scholar")
     if key_status['serp'] == "✅":
@@ -892,25 +815,21 @@ def get_available_engines(key_status):
     if key_status['springer'] == "✅":
         available.append("Springer Nature")
     
-    # Free Engines (always available)
     available.extend([
         "arXiv", "PubMed", "Crossref/DOI", "OpenAlex",
         "Europe PMC", "PLOS", "SSRN", "DeepDyve",
         "Wiley", "Taylor & Francis", "ACM Digital Library", "DBLP", "SAGE Journals"
     ])
-    
     return available
 
 # ================================================================================
-# REPORT GENERATION FUNCTIONS
+# FIXED ANTHROPIC API CALL
 # ================================================================================
 
 def update_report_progress(stage: str, detail: str, percent: int):
     """Update report generation progress"""
     st.session_state.report_progress = {
-        'stage': stage,
-        'detail': detail,
-        'percent': min(100, percent)
+        'stage': stage, 'detail': detail, 'percent': min(100, percent)
     }
 
 def rate_limit_wait():
@@ -918,17 +837,17 @@ def rate_limit_wait():
     current_time = time.time()
     if 'last_api_call_time' not in st.session_state:
         st.session_state.last_api_call_time = 0
-    
     time_since_last = current_time - st.session_state.last_api_call_time
-    
     if time_since_last < MIN_API_DELAY:
         time.sleep(MIN_API_DELAY - time_since_last)
-    
     st.session_state.last_api_call_time = time.time()
     st.session_state.report_api_calls += 1
 
 def call_anthropic_api(messages: List[Dict], max_tokens: int = 1000, use_fallback: bool = False) -> Dict:
-    """Call Anthropic API with fallback model support"""
+    """
+    FIXED: Call Anthropic API with proper message format
+    Anthropic API does NOT support 'system' role in messages array
+    """
     try:
         anthropic_key = st.secrets["ANTHROPIC_API_KEY"]
     except:
@@ -944,20 +863,46 @@ def call_anthropic_api(messages: List[Dict], max_tokens: int = 1000, use_fallbac
     
     model = MODEL_FALLBACK if use_fallback else MODEL_PRIMARY
     
+    # FIXED: Anthropic API structure - system goes in separate field, not messages
+    # Extract system message if present
+    system_content = None
+    user_messages = []
+    
+    for msg in messages:
+        if msg.get('role') == 'system':
+            system_content = msg.get('content')
+        else:
+            user_messages.append(msg)
+    
+    # Build request data
     data = {
         "model": model,
         "max_tokens": max_tokens,
-        "messages": messages
+        "messages": user_messages
     }
+    
+    # Add system parameter if present (supported in newer API versions)
+    if system_content:
+        data["system"] = system_content
     
     for attempt in range(3):
         try:
             response = requests.post(
                 "https://api.anthropic.com/v1/messages",
-                headers=headers,
-                json=data,
-                timeout=180
+                headers=headers, json=data, timeout=180
             )
+            
+            if response.status_code == 400:
+                error_detail = response.text
+                st.error(f"API 400 Error: {error_detail[:500]}")
+                # Try without system parameter if that's the issue
+                if system_content and "system" in data:
+                    st.warning("Retrying without system parameter...")
+                    del data["system"]
+                    # Prepend system to first user message
+                    if user_messages:
+                        user_messages[0]['content'] = f"{system_content}\n\n{user_messages[0]['content']}"
+                    continue
             
             if response.status_code == 429:
                 wait_time = RETRY_DELAYS[attempt]
@@ -975,7 +920,7 @@ def call_anthropic_api(messages: List[Dict], max_tokens: int = 1000, use_fallbac
             return response.json()
         
         except requests.exceptions.RequestException as e:
-            st.warning(f"⚠️ API error (attempt {attempt+1}/3): {str(e)[:50]}")
+            st.warning(f"⚠️ API error (attempt {attempt+1}/3): {str(e)[:100]}")
             if attempt == 2:
                 if not use_fallback:
                     st.info("🔄 Trying fallback model...")
@@ -984,13 +929,11 @@ def call_anthropic_api(messages: List[Dict], max_tokens: int = 1000, use_fallbac
             time.sleep(RETRY_DELAYS[attempt])
     
     if not use_fallback:
-        st.info("🔄 Primary model failed. Trying fallback model...")
         return call_anthropic_api(messages, max_tokens, use_fallback=True)
-    
     raise Exception("API call failed after 3 retries with both models")
 
 def parse_json_response(text: str) -> Dict:
-    """Extract JSON from API response text"""
+    """Extract JSON from response"""
     try:
         cleaned = re.sub(r'```json\n?|```\n?', '', text).strip()
         return json.loads(cleaned)
@@ -1004,20 +947,15 @@ def parse_json_response(text: str) -> Dict:
     return {}
 
 def generate_phrase_variations(topic: str) -> List[str]:
-    """Generate phrase variations to avoid repetition"""
+    """Generate phrase variations"""
     return [
-        topic,
-        f"the field of {topic}",
-        f"{topic} research",
-        f"this domain",
-        f"this research area",
-        f"the {topic} field"
+        topic, f"the field of {topic}", f"{topic} research",
+        "this domain", "this research area", f"the {topic} field"
     ]
 
 def convert_orchestrator_to_source_format(papers: List[Dict]) -> List[Dict]:
-    """Convert ResearchOrchestrator output to report writer source format"""
+    """Convert orchestrator output to source format"""
     sources = []
-    
     for paper in papers:
         metadata = {
             'authors': paper.get('ieee_authors', 'Unknown Authors'),
@@ -1027,7 +965,6 @@ def convert_orchestrator_to_source_format(papers: List[Dict]) -> List[Dict]:
             'citations': paper.get('citations', 0),
             'doi': paper.get('doi', 'N/A')
         }
-        
         source = {
             'title': paper.get('title', 'Untitled'),
             'url': paper.get('url', ''),
@@ -1038,114 +975,62 @@ def convert_orchestrator_to_source_format(papers: List[Dict]) -> List[Dict]:
             'dateAccessed': datetime.now().isoformat(),
             '_orchestrator_data': paper
         }
-        
         sources.append(source)
-    
     return sources
 
 def analyze_topic_with_ai(topic: str, subject: str) -> Dict:
-    """Analyze topic and generate research plan with evaluation context"""
-    
-    # Domain-specific evaluation framework knowledge
-    evaluation_frameworks = {
+    """Analyze topic with evaluation framework detection"""
+    frameworks = {
         'scientific literature synthesis': {
-            'primary_benchmark': 'ScholarQABench',
-            'metrics': ['correctness', 'citation_accuracy', 'coverage', 'coherence'],
-            'evaluation_type': 'automated_plus_human',
-            'human_evaluation': 'blind_preference_judgment'
+            'benchmarks': ['ScholarQABench', 'PubMedQA', 'BioASQ'],
+            'metrics': ['correctness', 'citation_accuracy', 'coverage']
         },
         'retrieval augmented generation': {
-            'common_benchmarks': ['RGB', 'RECALL', 'ASQA', 'ELI5', 'ScholarQABench'],
-            'metrics': ['retrieval_accuracy', 'generation_fidelity', 'hallucination_rate']
-        },
-        'biomedical nlp': {
-            'common_benchmarks': ['PubMedQA', 'BioASQ', 'MedQA', 'BLURB'],
-            'metrics': ['accuracy', 'F1', 'exact_match']
-        },
-        'systematic review': {
-            'guidelines': ['PRISMA 2020', 'PRISMA-S', 'Cochrane'],
-            'metrics': ['completeness', 'bias_risk', 'reporting_quality']
+            'benchmarks': ['RGB', 'RECALL', 'ASQA', 'ScholarQABench'],
+            'metrics': ['retrieval_accuracy', 'generation_fidelity']
         }
     }
     
-    # Detect relevant frameworks
-    relevant_frameworks = []
-    topic_lower = topic.lower()
-    subject_lower = subject.lower()
+    relevant = []
+    for domain, fw in frameworks.items():
+        if domain in topic.lower() or domain in subject.lower():
+            relevant.append(fw)
     
-    for domain, framework in evaluation_frameworks.items():
-        if domain in topic_lower or domain in subject_lower:
-            relevant_frameworks.append({**framework, 'domain': domain})
-    
-    framework_context = ""
-    if relevant_frameworks:
-        framework_context = "\n\nRELEVANT EVALUATION FRAMEWORKS FOR THIS FIELD:\n"
-        for fw in relevant_frameworks:
-            framework_context += f"- Domain: {fw['domain']}\n"
-            if 'primary_benchmark' in fw:
-                framework_context += f"  Primary benchmark: {fw['primary_benchmark']}\n"
-            if 'common_benchmarks' in fw:
-                framework_context += f"  Common benchmarks: {', '.join(fw['common_benchmarks'])}\n"
-            if 'metrics' in fw:
-                framework_context += f"  Key metrics: {', '.join(fw['metrics'])}\n"
-            framework_context += "\n"
-    
-    variations = generate_phrase_variations(topic)
-    st.session_state.report_research['phrase_variations'] = variations
-    
-    prompt = f"""Research plan for "{topic}" in {subject}.{framework_context}
+    prompt = f"""Research plan for "{topic}" in {subject}.
 
 Create:
-1. 5 specific subtopics about "{topic}"
-2. 5 academic search queries for finding papers (2020-2025)
-3. IDENTIFY the specific evaluation benchmarks used in this field (if any)
+1. 5 specific subtopics
+2. 5 academic search queries (2020-2025)
+3. Evaluation benchmarks used in this field
 
-Return ONLY JSON:
+Return JSON:
 {{
-  "subtopics": ["aspect 1", "aspect 2", ...],
-  "researchQueries": ["query 1", "query 2", ...],
-  "evaluationFrameworks": ["benchmark 1", "benchmark 2"]
+  "subtopics": ["...", "..."],
+  "researchQueries": ["...", "..."],
+  "evaluationFrameworks": ["...", "..."]
 }}"""
     
     try:
-        response = call_anthropic_api(
-            [{"role": "user", "content": prompt}],
-            max_tokens=800
-        )
+        response = call_anthropic_api([{"role": "user", "content": prompt}], max_tokens=800)
         text = "".join([c['text'] for c in response['content'] if c['type'] == 'text'])
         result = parse_json_response(text)
-        
-        if result.get('subtopics') and result.get('researchQueries'):
+        if result.get('subtopics'):
             return result
     except Exception as e:
         st.warning(f"Topic analysis failed: {e}. Using fallback.")
     
-    # Fallback
     return {
-        "subtopics": [
-            f"Foundations of {topic}",
-            f"Recent Advances in {topic}",
-            f"Applications of {topic}",
-            f"Challenges in {topic}",
-            f"Future of {topic}"
-        ],
-        "researchQueries": [
-            f"{topic} research 2024",
-            f"{topic} academic papers",
-            f"{topic} recent developments",
-            f"{topic} applications",
-            f"{topic} future trends"
-        ],
-        "evaluationFrameworks": []
+        "subtopics": [f"Foundations of {topic}", f"Recent Advances", f"Applications", f"Challenges", f"Future"],
+        "researchQueries": [f"{topic} 2024", f"{topic} benchmark", f"{topic} evaluation"],
+        "evaluationFrameworks": relevant[0]['benchmarks'] if relevant else []
     }
 
 # ================================================================================
-# ENHANCED DRAFT GENERATION WITH STRICT CONTROLS
+# FIXED DRAFT GENERATION - COMPACT PROMPT
 # ================================================================================
 
 def add_temporal_context(prompt: str, sources: List[Dict]) -> str:
-    """Add temporal context based on source publication dates"""
-    
+    """Add temporal context"""
     years = []
     for s in sources:
         year_str = s.get('metadata', {}).get('year', '')
@@ -1153,20 +1038,8 @@ def add_temporal_context(prompt: str, sources: List[Dict]) -> str:
             years.append(int(year_str))
     
     if years:
-        min_year = min(years)
-        max_year = max(years)
-        current_year = datetime.now().year
-        
-        temporal_context = f"""
-TEMPORAL CONTEXT:
-- Source publication range: {min_year}-{max_year}
-- Current year: {current_year}
-- "Recent" refers to {max_year-2}-{max_year} (last 2-3 years of available sources)
-- Use specific years instead of relative terms ("in 2024" not "recently")
-- Avoid claiming developments are "recent" if sources are from {current_year-5} or earlier
-"""
-        return prompt + temporal_context
-    
+        min_year, max_year = min(years), max(years)
+        return prompt + f"\n\nSource years: {min_year}-{max_year}. Use specific years, not 'recently'."
     return prompt
 
 def generate_draft_strict(
@@ -1178,156 +1051,61 @@ def generate_draft_strict(
     evaluation_frameworks: List[str],
     max_sources: int = 25
 ) -> Tuple[Dict, Dict]:
-    """Generate draft with strict technical specificity requirements"""
+    """Generate draft with strict technical requirements - FIXED compact prompt"""
     
     update_report_progress('Drafting', 'Writing with strict technical requirements...', 60)
     
     if not sources:
         raise Exception("No sources available")
     
-    # Aggregate technical specifications
+    # Aggregate technical specs
     all_specs = aggregate_technical_specs(sources[:max_sources])
     
-    # Prepare source list with technical annotations
+    # Prepare compact source list
     source_list = []
     for i, s in enumerate(sources[:max_sources], 1):
         meta = s.get('metadata', {})
         tier = s.get('authority_tier', 'unknown')
+        tier_emoji = {'top_tier_journal': '🏆', 'publisher_journal': '📚', 'conference': '🎓', 'preprint': '📄'}.get(tier, '📄')
         
-        # Extract specs for this source
-        source_text = ' '.join([meta.get('title', ''), s.get('content', '')])
-        source_specs = extract_technical_specifications(source_text)
-        spec_summary = ', '.join([f"{k}: {', '.join(v[:3])}" for k, v in source_specs.items() if v])
-        
-        tier_emoji = {
-            'top_tier_journal': '🏆',
-            'publisher_journal': '📚',
-            'conference': '🎓',
-            'preprint': '📄',
-            'other': '📃'
-        }.get(tier, '📄')
-        
-        source_list.append(f"""[{i}] {tier_emoji} [{tier.upper()}] {meta.get('title', 'Unknown')} ({meta.get('year', 'N/A')})
-Authors: {meta.get('authors', 'Unknown')}
-Venue: {meta.get('venue', 'Unknown')} | Citations: {meta.get('citations', 0)}
-Technical: {spec_summary if spec_summary else 'General content'}
-URL: {s['url'][:70]}""")
+        # Compact source entry
+        source_list.append(f"[{i}] {tier_emoji} {meta.get('title', 'Unknown')[:80]} ({meta.get('year', 'N/A')}) - {meta.get('venue', 'Unknown')[:40]}")
     
-    sources_text = "\n\n".join(source_list)
+    sources_text = "\n".join(source_list)
     
-    # Build strict system prompt
-    system_prompt = f"""You are a PRECISE technical report generator. ABSOLUTE RULES:
+    # COMPACT system prompt (was too long before)
+    system_prompt = """You are a PRECISE technical report writer. RULES:
+1. NO generic words: advanced, sophisticated, state-of-the-art, enhanced, novel, robust, seamless
+2. EVERY claim needs: specific numbers, benchmark names, parameter counts, or system names
+3. Cite sources as [X]. Minimum 60% source coverage required.
+4. If unsure, write "Not specified" rather than inventing."""
 
-VIOLATION = REJECTION. NO EXCEPTIONS.
-
-RULE 1 - FORBIDDEN WORDS (Automatic rejection if used without specific metrics):
-- "advanced" → USE: "using 340M parameter cross-encoder [X]"
-- "sophisticated" → USE: "bi-encoder with 768-dimensional embeddings [X]"
-- "state-of-the-art" → USE: "achieving 71.8% on ScholarQABench [X]"
-- "enhanced" → USE: "15% improvement over GPT-4o baseline [X]"
-- "novel" → USE: "first system to combine X with Y [X]"
-- "robust" → USE: "maintains performance across 5 domains [X]"
-
-RULE 2 - MANDATORY SPECIFICITY:
-Every technical claim MUST include ONE of:
-- Exact benchmark name + score (e.g., "ScholarQABench: 71.8%")
-- Parameter count (e.g., "8B parameters")
-- Dataset size (e.g., "45M papers")
-- System name + version (e.g., "OpenScholar-8B")
-- Specific year (e.g., "2024") not "recent"
-
-RULE 3 - CITATION REQUIREMENTS:
-- Cite AT LEAST {int(max_sources * 0.6)} different sources minimum
-- Every paragraph must contain 2-4 citations [X]
-- Never cite same source twice in one paragraph
-- Use high-authority sources [1]-[10] preferentially
-
-RULE 4 - IF UNSURE:
-Write "Not specified in source [X]" or omit entirely.
-NEVER invent numbers, benchmarks, or metrics.
-
-EXTRACTED TECHNICAL DETAILS FROM SOURCES:
-Benchmarks: {', '.join(all_specs.get('benchmarks', ['None found']))}
-Models: {', '.join(all_specs.get('models', ['None found']))}
-Parameter counts: {', '.join(all_specs.get('parameter_counts', ['None found']))}
-Dataset sizes: {', '.join(all_specs.get('dataset_sizes', ['None found']))}
-Architectures: {', '.join(all_specs.get('architectures', ['None found']))}
-
-REMEMBER: Specificity is MANDATORY. Generic language is FORBIDDEN."""
-
-    # Variations and evaluation context
-    variations_text = f"""PHRASE VARIATION (Required):
-- "{topic}" - MAXIMUM 3 times total
-- "{variations[1]}" - USE FREQUENTLY
-- "{variations[2]}" - USE FREQUENTLY  
-- "this domain" - USE OFTEN
-- "this research area" - USE OFTEN"""
-
-    eval_context = ""
-    if evaluation_frameworks:
-        eval_context = f"""
-EVALUATION FRAMEWORKS (Use these specific names):
-{', '.join(evaluation_frameworks)}
-DO NOT use generic guidelines like PRISMA unless specifically discussing human reviews."""
-
-    strict_boundary = f"""
-SOURCE BOUNDARY: You may ONLY cite [1]-[{len(sources[:max_sources])}].
-DO NOT mention any paper not in this numbered list.
-DO NOT invent authors or systems."""
-
-    # Section-specific requirements
-    section_requirements = """
-SECTION REQUIREMENTS (All must be met):
-
-Abstract (200 words):
-- MUST name specific benchmark(s) with scores
-- MUST include dataset size or parameter count
-- MUST cite [5] (Asai et al. Nature 2026) if available
-
-Introduction:
-- MUST cite specific founding paper with year
-- MUST quantify the problem (e.g., "X papers published annually")
-
-Literature Review:
-- MUST compare specific systems with metric differences
-- NO generic "many studies have shown"
-
-Main Sections (4 required):
-1. Architecture: Name specific encoders, dimensions, parameters
-2. Benchmarks: List ALL benchmarks found in sources with scores
-3. Comparisons: System A vs System B with percentage differences
-4. Applications: Specific domains with quantitative results
-
-Data & Analysis:
-- MUST include specific numbers for every claim
-- Table-like comparisons preferred
-
-Challenges:
-- Specific technical limitations (e.g., "bi-encoder latency of Xms")
-- NOT generic "challenges remain"
-
-Future:
-- Concrete capabilities with predicted metrics
-- Specific technical directions
-
-Conclusion:
-- Summary of specific achievements with numbers
-- NO new claims without citations"""
-
+    # Build user prompt with technical details
+    specs_text = "\n".join([f"{k}: {', '.join(v[:3])}" for k, v in all_specs.items() if v])
+    
     user_prompt = f"""Write technical report about "{topic}" in {subject}.
 
-{variations_text}
+TECHNICAL DETAILS FOUND:
+{specs_text if specs_text else 'No specific metrics extracted'}
 
-{eval_context}
-
-{strict_boundary}
-
-{section_requirements}
-
-ACADEMIC SOURCES TO USE:
+SOURCES (cite these only):
 {sources_text}
 
-Return JSON format:
+PHRASE VARIATION: Use "{variations[1]}" or "{variations[2]}" instead of repeating "{topic}".
+
+REQUIREMENTS:
+- Abstract: Include specific benchmark + score, dataset size or parameter count
+- Introduction: Cite founding paper [5] if Asai et al. present
+- Literature Review: Compare systems with metric differences
+- 4 Main Sections: Architecture (specific encoders/dimensions), Benchmarks (all with scores), Comparisons (A vs B with %), Applications (quantitative results)
+- Data & Analysis: Numbers for every claim
+- Challenges: Specific technical limits (e.g., "latency Xms")
+- Future: Concrete directions with predicted metrics
+- Conclusion: Specific achievements with numbers
+
+FORBIDDEN: "advanced", "sophisticated", "state-of-the-art", "enhanced", "novel", "robust", "seamless", "efficient" without specific metrics.
+
+Return JSON:
 {{
   "abstract": "...",
   "introduction": "...",
@@ -1337,14 +1115,11 @@ Return JSON format:
   "challenges": "...",
   "futureOutlook": "...",
   "conclusion": "..."
-}}
+}}"""
 
-REMINDER: Every claim needs [X] citation. Every number needs source support. Generic terms are forbidden."""
-
-    # Add temporal context
     user_prompt = add_temporal_context(user_prompt, sources[:max_sources])
     
-    # First generation attempt
+    # FIXED: Use system parameter correctly
     response = call_anthropic_api(
         [
             {"role": "system", "content": system_prompt},
@@ -1362,63 +1137,50 @@ REMINDER: Every claim needs [X] citation. Every number needs source support. Gen
         if key not in draft or not draft[key]:
             draft[key] = "Section content." if key != 'mainSections' else [{"title": "Section", "content": "Content."}]
     
-    # STRICT VERIFICATION
+    # Verification
     update_report_progress('Verification', 'Running strict claim verification...', 75)
     verifier = StrictClaimVerifier(sources[:max_sources])
     verification = verifier.comprehensive_check(draft)
     
-    # Check source coverage
+    # Check coverage
     coverage_check = enforce_source_coverage(draft, sources[:max_sources], min_coverage=0.5)
     
-    # If critical issues, attempt regeneration with corrections
+    # Regenerate if critical issues
     if verification['has_critical'] or coverage_check['status'] != 'ok':
         update_report_progress('Refinement', 'Fixing critical issues...', 85)
         
-        correction_prompt = f"""
-CRITICAL ISSUES FOUND - MUST FIX:
+        # Compact correction prompt
+        correction = f"""FIX THESE ISSUES:
+{chr(10).join([f"- {v['type']}: {v.get('suggestion', '')[:60]}" for v in verification['violations'][:5]])}
 
-{chr(10).join([f"- {v['type']}: {v.get('suggestion', v.get('issue', ''))}" for v in verification['violations'][:10]])}
+Coverage: {coverage_check['coverage']:.0%}. Add citations from: {', '.join([str(s['index']) for s in coverage_check.get('high_priority_missing', [])[:5]])}
 
-COVERAGE ISSUE: {coverage_check['message']}
+Return corrected JSON with specific metrics only."""
 
-MISSING HIGH-PRIORITY SOURCES TO INTEGRATE:
-{chr(10).join([f"[{s['index']}] {s['title']} ({s['venue']})" for s in coverage_check.get('high_priority_missing', [])[:5]])}
-
-REGENERATION RULES:
-1. Remove ALL forbidden generic terms
-2. Add specific metrics (benchmarks, parameters, percentages) to every claim
-3. Integrate missing high-priority sources above
-4. Ensure minimum {int(max_sources * 0.5)} unique citations
-5. If specific number unavailable, remove claim or write "Not specified in sources"
-
-Return corrected JSON."""
-        
         try:
             retry_response = call_anthropic_api(
                 [
-                    {"role": "system", "content": system_prompt + "\n\nTHIS IS A CORRECTION ATTEMPT. FIX ALL ISSUES LISTED."},
-                    {"role": "user", "content": user_prompt + "\n\n" + correction_prompt}
+                    {"role": "system", "content": system_prompt + " CORRECTION REQUIRED."},
+                    {"role": "user", "content": user_prompt + "\n\n" + correction}
                 ],
                 max_tokens=6000
             )
             retry_text = "".join([c['text'] for c in retry_response['content'] if c['type'] == 'text'])
             corrected_draft = parse_json_response(retry_text)
             
-            # Validate structure
             valid = all(k in corrected_draft and corrected_draft[k] for k in required_keys)
             if valid:
                 draft = corrected_draft
-                # Re-verify
                 verification = verifier.comprehensive_check(draft)
                 coverage_check = enforce_source_coverage(draft, sources[:max_sources], min_coverage=0.5)
                 verification['correction_attempted'] = True
         except Exception as e:
             verification['correction_error'] = str(e)
     
-    # Final cleanup
+    # Cleanup
     def fix_citations(text):
         if isinstance(text, str):
-            text = re.sub(r'\[Source\s+(\d+)\]', r'[\1]', text, flags=re.IGNORECASE)
+            return re.sub(r'\[Source\s+(\d+)\]', r'[\1]', text, flags=re.IGNORECASE)
         return text
     
     for key in draft:
@@ -1431,31 +1193,25 @@ Return corrected JSON."""
                         if isinstance(v, str):
                             item[k] = fix_citations(v)
     
-    verification_report = {
+    return draft, {
         'verification': verification,
         'coverage': coverage_check,
         'technical_specs_found': all_specs
     }
-    
-    return draft, verification_report
 
 # ================================================================================
-# CITATION FORMATTING AND HTML GENERATION
+# CITATION AND HTML FUNCTIONS
 # ================================================================================
 
 def format_authors_ieee(authors_str: str) -> str:
-    """Format multiple authors for IEEE style"""
+    """Format authors for IEEE"""
     if not authors_str:
         return "Research Team"
-    
     if 'et al' in authors_str.lower():
         return authors_str
     
     authors = re.split(r',\s*|\s+and\s+', authors_str)
     authors = [a.strip() for a in authors if a.strip()]
-    
-    if not authors:
-        return "Research Team"
     
     if len(authors) == 1:
         return authors[0]
@@ -1465,7 +1221,7 @@ def format_authors_ieee(authors_str: str) -> str:
         return ', '.join(authors[:-1]) + ', and ' + authors[-1]
 
 def format_citation_with_tier(source: Dict, index: int, style: str = 'IEEE') -> str:
-    """Format citation with correct tier badge"""
+    """Format citation with tier badge"""
     meta = source.get('metadata', {})
     tier = source.get('authority_tier', 'unknown')
     
@@ -1511,13 +1267,12 @@ def extract_cited_references_enhanced(draft: Dict) -> Tuple[set, List[Dict]]:
     return cited, contexts
 
 def renumber_citations_in_text(text: str, mapping: Dict[int, int]) -> str:
-    """Renumber citations in text according to the mapping"""
+    """Renumber citations"""
     return re.sub(r'\[(\d+)\]', lambda m: f'[{mapping.get(int(m.group(1)), m.group(1))}]', text)
 
 def renumber_citations_in_draft(draft: Dict, mapping: Dict[int, int]) -> Dict:
-    """Renumber all citations in the draft according to the mapping"""
+    """Renumber all citations"""
     new_draft = {}
-    
     for key, value in draft.items():
         if isinstance(value, str):
             new_draft[key] = renumber_citations_in_text(value, mapping)
@@ -1525,27 +1280,20 @@ def renumber_citations_in_draft(draft: Dict, mapping: Dict[int, int]) -> Dict:
             new_list = []
             for item in value:
                 if isinstance(item, dict):
-                    new_item = {}
-                    for k, v in item.items():
-                        if isinstance(v, str):
-                            new_item[k] = renumber_citations_in_text(v, mapping)
-                        else:
-                            new_item[k] = v
+                    new_item = {k: renumber_citations_in_text(v, mapping) if isinstance(v, str) else v 
+                               for k, v in item.items()}
                     new_list.append(new_item)
-                elif isinstance(item, str):
-                    new_list.append(renumber_citations_in_text(item, mapping))
                 else:
                     new_list.append(item)
             new_draft[key] = new_list
         else:
             new_draft[key] = value
-    
     return new_draft
 
-def refine_draft_simple(draft: Dict, topic: str, sources_count: int) -> Dict:
+def refine_draft_simple(draft: Dict, topic: str, count: int) -> Dict:
     """Add executive summary"""
     draft['executiveSummary'] = (
-        f"This report examines {topic} based on {sources_count} authoritative sources "
+        f"This report examines {topic} based on {count} authoritative sources "
         f"with strict technical verification."
     )
     return draft
@@ -1557,34 +1305,24 @@ def generate_html_report_strict(
     verification_report: Dict,
     max_sources: int = 25
 ) -> str:
-    """Generate HTML report with strict verification display"""
+    """Generate HTML with verification display"""
     
-    update_report_progress('Generating HTML', 'Creating document...', 97)
+    cited, _ = extract_cited_references_enhanced(refined_draft)
+    cited_sorted = sorted(cited)
+    
+    old_to_new = {old: new for new, old in enumerate(cited_sorted, 1)}
+    renumbered_draft = renumber_citations_in_draft(refined_draft, old_to_new)
+    
+    ver = verification_report.get('verification', {})
+    cov = verification_report.get('coverage', {})
+    specs = verification_report.get('technical_specs_found', {})
     
     try:
-        report_date = datetime.strptime(
-            form_data['date'],
-            '%Y-%m-%d'
-        ).strftime('%B %d, %Y')
+        report_date = datetime.strptime(form_data['date'], '%Y-%m-%d').strftime('%B %d, %Y')
     except:
         report_date = datetime.now().strftime('%B %d, %Y')
     
     style = form_data.get('citation_style', 'IEEE')
-    
-    # Extract cited references and create renumbering map
-    cited, contexts = extract_cited_references_enhanced(refined_draft)
-    cited_refs_sorted = sorted(cited)
-    
-    old_to_new = {}
-    for new_num, old_num in enumerate(cited_refs_sorted, 1):
-        old_to_new[old_num] = new_num
-    
-    renumbered_draft = renumber_citations_in_draft(refined_draft, old_to_new)
-    
-    # Get verification data
-    ver = verification_report.get('verification', {})
-    cov = verification_report.get('coverage', {})
-    specs = verification_report.get('technical_specs_found', {})
     
     html = f"""<!DOCTYPE html>
 <html>
@@ -1593,91 +1331,21 @@ def generate_html_report_strict(
     <title>{form_data['topic']} - Technical Report</title>
     <style>
         @page {{ margin: 1in; }}
-        body {{
-            font-family: 'Times New Roman', serif;
-            font-size: 12pt;
-            line-height: 1.6;
-            color: #000;
-            max-width: 8.5in;
-            margin: 0 auto;
-            padding: 0.5in;
-        }}
-        .cover {{
-            text-align: center;
-            padding-top: 2in;
-            page-break-after: always;
-        }}
-        .cover h1 {{
-            font-size: 24pt;
-            font-weight: bold;
-            margin: 1in 0 0.5in 0;
-        }}
-        .cover .meta {{
-            font-size: 14pt;
-            margin: 0.25in 0;
-        }}
-        h1 {{
-            font-size: 18pt;
-            margin-top: 0.5in;
-            border-bottom: 2px solid #333;
-            padding-bottom: 0.1in;
-        }}
-        h2 {{
-            font-size: 14pt;
-            margin-top: 0.3in;
-            font-weight: bold;
-        }}
-        p {{
-            text-align: justify;
-            margin: 0.15in 0;
-        }}
-        .abstract {{
-            font-style: italic;
-            margin: 0.25in 0.5in;
-        }}
-        .references {{
-            page-break-before: always;
-        }}
-        .ref-item {{
-            margin: 0.15in 0;
-            font-size: 10pt;
-            line-height: 1.4;
-            word-wrap: break-word;
-            overflow-wrap: break-word;
-        }}
-        .ref-item a {{
-            color: #0066CC;
-            text-decoration: none;
-            word-break: break-all;
-        }}
-        .ref-item a:hover {{
-            text-decoration: underline;
-        }}
-        .tier-label {{
-            font-size: 9pt;
-            color: #666;
-            font-weight: bold;
-        }}
-        .verification-panel {{
-            background: #f8f9fa;
-            border: 1px solid #dee2e6;
-            padding: 1rem;
-            margin: 1rem 0;
-            font-size: 10pt;
-        }}
-        .specs-grid {{
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 0.5rem;
-            font-size: 9pt;
-        }}
-        .violation {{
-            background: #f8d7da;
-            padding: 0.3rem;
-            margin: 0.2rem 0;
-            border-radius: 0.2rem;
-            font-size: 9pt;
-        }}
+        body {{ font-family: 'Times New Roman', serif; font-size: 12pt; line-height: 1.6; max-width: 8.5in; margin: 0 auto; padding: 0.5in; }}
+        .cover {{ text-align: center; padding-top: 2in; page-break-after: always; }}
+        .cover h1 {{ font-size: 24pt; margin: 1in 0 0.5in; }}
+        .cover .meta {{ font-size: 14pt; margin: 0.25in 0; }}
+        h1 {{ font-size: 18pt; margin-top: 0.5in; border-bottom: 2px solid #333; padding-bottom: 0.1in; }}
+        h2 {{ font-size: 14pt; margin-top: 0.3in; font-weight: bold; }}
+        p {{ text-align: justify; margin: 0.15in 0; }}
+        .abstract {{ font-style: italic; margin: 0.25in 0.5in; }}
+        .references {{ page-break-before: always; }}
+        .ref-item {{ margin: 0.15in 0; font-size: 10pt; line-height: 1.4; word-wrap: break-word; }}
+        .ref-item a {{ color: #0066CC; text-decoration: none; word-break: break-all; }}
+        .tier-label {{ font-size: 9pt; color: #666; font-weight: bold; }}
+        .verification-panel {{ background: #f8f9fa; border: 1px solid #dee2e6; padding: 1rem; margin: 1rem 0; font-size: 10pt; }}
+        .specs-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; font-size: 9pt; }}
+        .violation {{ background: #f8d7da; padding: 0.3rem; margin: 0.2rem 0; border-radius: 0.2rem; font-size: 9pt; }}
     </style>
 </head>
 <body>
@@ -1686,9 +1354,7 @@ def generate_html_report_strict(
         <div class="meta">Technical Research Report</div>
         <div class="meta">Subject: {form_data['subject']}</div>
         <div class="meta" style="margin-top: 1in;">
-            {form_data['researcher']}<br>
-            {form_data['institution']}<br>
-            {report_date}
+            {form_data['researcher']}<br>{form_data['institution']}<br>{report_date}
         </div>
         <div class="meta" style="margin-top: 0.5in; font-size: 10pt;">
             Generated by SROrch | {style} Format | STRICT MODE
@@ -1709,10 +1375,7 @@ def generate_html_report_strict(
 """
     
     for section in renumbered_draft.get('mainSections', []):
-        html += f"""
-    <h2>{section.get('title', 'Section')}</h2>
-    <p>{section.get('content', '')}</p>
-"""
+        html += f'<h2>{section.get("title", "Section")}</h2><p>{section.get("content", "")}</p>'
     
     html += f"""
     <h1>Data & Analysis</h1>
@@ -1731,42 +1394,32 @@ def generate_html_report_strict(
         <h1>References</h1>
 """
     
-    # Generate references with tier badges
-    for old_ref_num in cited_refs_sorted:
-        new_ref_num = old_to_new[old_ref_num]
-        if old_ref_num <= len(sources):
-            source = sources[old_ref_num - 1]
-            citation = format_citation_with_tier(source, new_ref_num, style)
-            html += f'        <div class="ref-item">{citation}</div>\n'
+    for old_num in cited_sorted:
+        new_num = old_to_new[old_num]
+        if old_num <= len(sources):
+            source = sources[old_num - 1]
+            citation = format_citation_with_tier(source, new_num, style)
+            html += f'<div class="ref-item">{citation}</div>\n'
     
-    # Add "Further References" section for uncited but relevant sources
-    uncited_sources = []
-    cited_indices = set(cited_refs_sorted)
-    
-    for i in range(1, min(max_sources + 1, len(sources) + 1)):
-        if i not in cited_indices:
-            uncited_sources.append((i, sources[i - 1]))
-    
-    if uncited_sources:
-        html += """
-        <h1 style="margin-top: 0.5in;">Further References</h1>
-        <p style="font-style: italic; font-size: 10pt;">Additional relevant sources consulted but not directly cited in this report.</p>
-"""
-        for idx, source in uncited_sources[:20]:
+    # Further references
+    uncited = [i for i in range(1, len(sources)+1) if i not in cited]
+    if uncited:
+        html += '<h1 style="margin-top: 0.5in;">Further References</h1><p style="font-size: 10pt; font-style: italic;">Additional sources analyzed but not directly cited:</p>'
+        for idx in uncited[:15]:
+            source = sources[idx - 1]
             citation = format_citation_with_tier(source, idx, style)
             citation_text = citation.split(']', 1)[1] if ']' in citation else citation
-            html += f'        <div class="ref-item" style="font-size: 9pt;">• {citation_text}</div>\n'
+            html += f'<div class="ref-item" style="font-size: 9pt;">• {citation_text}</div>\n'
     
-    # Add verification panel
+    # Verification panel
     html += f"""
     </div>
     
     <div class="verification-panel" style="page-break-before: always;">
         <h3>🔍 Technical Verification Report</h3>
-        <p><strong>Quality Metrics:</strong></p>
         <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin: 1rem 0;">
             <div>Sources: <strong>{len(sources)}</strong></div>
-            <div>Cited: <strong>{len(cited_refs_sorted)} ({cov.get('coverage', 0):.0%})</strong></div>
+            <div>Cited: <strong>{len(cited_sorted)} ({cov.get('coverage', 0):.0%})</strong></div>
             <div>Violations: <strong>{ver.get('total_violations', 0)}</strong></div>
             <div>Correction: <strong>{'Yes' if ver.get('correction_attempted') else 'No'}</strong></div>
         </div>
@@ -1780,7 +1433,6 @@ def generate_html_report_strict(
         </div>
 """
     
-    # Show violations if any
     if ver.get('violations'):
         html += '<p style="margin-top: 1rem;"><strong>Issues Flagged:</strong></p>'
         for v in ver['violations'][:10]:
