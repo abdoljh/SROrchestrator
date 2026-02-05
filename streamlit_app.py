@@ -923,15 +923,16 @@ def generate_html_report_optimized(
             page-break-before: always;
         }}
         .ref-item {{
-            margin: 0.15in 0 0.15in 0.5in;
-            text-indent: -0.5in;
-            padding-left: 0.5in;
+            margin: 0.15in 0;
             font-size: 10pt;
             line-height: 1.4;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
         }}
         .ref-item a {{
             color: #0066CC;
             text-decoration: none;
+            word-break: break-all;
         }}
         .ref-item a:hover {{
             text-decoration: underline;
