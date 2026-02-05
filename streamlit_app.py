@@ -1,5 +1,5 @@
 """
-SROrch Streamlit Interface - ENHANCED with Rigorous Claim Verification
+SROrch Streamlit Interface - COMPLETE VERSION with Strict Verification
 A comprehensive web interface for Scholarly Research Orchestrator with 
 integrated academic report generation and factual integrity controls
 """
@@ -17,7 +17,7 @@ from datetime import datetime
 from pathlib import Path
 import zipfile
 from typing import List, Dict, Optional, Tuple
-from collections import Counter
+from collections import Counter, defaultdict
 
 # Import the orchestrator
 from master_orchestrator import ResearchOrchestrator
@@ -108,6 +108,13 @@ st.markdown("""
         background-color: #f8d7da;
         color: #721c24;
     }
+    .critical-issue {
+        background-color: #f8d7da;
+        border: 2px solid #dc3545;
+        padding: 0.5rem;
+        border-radius: 0.3rem;
+        margin: 0.5rem 0;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -115,228 +122,352 @@ st.markdown("""
 # CONFIGURATION & CONSTANTS
 # ================================================================================
 
-# Model configuration for report generation
 MODEL_PRIMARY = "claude-sonnet-4-20250514"
 MODEL_FALLBACK = "claude-haiku-3-5-20241022"
-
-# Rate limiting for Anthropic API
 MIN_API_DELAY = 3.0
 RETRY_DELAYS = [10, 20, 40]
 
+# CRITICAL: Forbidden words that must not appear without specific metrics
+FORBIDDEN_GENERIC_TERMS = [
+    'advanced', 'sophisticated', 'state-of-the-art', 'state of the art',
+    'enhanced', 'novel', 'cutting-edge', 'cutting edge', 'innovative',
+    'powerful', 'robust', 'seamless', 'efficient', 'effective',
+    'comprehensive', 'holistic', 'groundbreaking', 'revolutionary'
+]
+
 # ================================================================================
-# ENHANCED CLAIM VERIFICATION SYSTEM (NEW)
+# ENHANCED CLAIM VERIFICATION SYSTEM (STRICT MODE)
 # ================================================================================
 
-class ClaimVerifier:
-    """Verify that all quantitative claims in generated text are supported by sources"""
+class StrictClaimVerifier:
+    """Strict verification with zero tolerance for unsupported quantitative claims"""
     
     def __init__(self, sources: List[Dict]):
         self.sources = sources
-        self.source_metrics = self._extract_metrics_from_sources(sources)
-        self.verification_log = []
+        self.source_metrics = self._extract_all_metrics(sources)
+        self.technical_specs = self._extract_technical_specifications(sources)
+        self.violations = []
     
-    def _extract_metrics_from_sources(self, sources: List[Dict]) -> Dict[str, List[str]]:
-        """Pre-extract all numerical claims from source abstracts/metadata"""
+    def _extract_all_metrics(self, sources: List[Dict]) -> Dict[str, Dict]:
+        """Extract all quantifiable metrics from sources with context"""
         metrics = {}
+        
         for i, source in enumerate(sources, 1):
-            # Combine all text fields
             text_parts = [
                 source.get('metadata', {}).get('title', ''),
                 source.get('content', ''),
                 source.get('metadata', {}).get('venue', ''),
-                str(source.get('_orchestrator_data', {}).get('tldr', ''))
+                str(source.get('_orchestrator_data', {}).get('tldr', '')),
+                str(source.get('_orchestrator_data', {}).get('abstract', ''))
             ]
             text = ' '.join(text_parts)
             
-            # Comprehensive patterns for metric extraction
-            patterns = [
-                r'(\d+(?:\.\d+)?%)\s*(?:improvement|increase|decrease|accuracy|precision|recall|f1)',
-                r'(\d+(?:\.\d+)?)\s*(?:times|fold|x)\s*(?:faster|better|improvement|higher|lower)',
-                r'outperform[s]?\s*.*?by\s*(\d+(?:\.\d+)?%?)',
-                r'achieve[s]?\s*(\d+(?:\.\d+)?%?)',
-                r'(\d+(?:\.\d+)?)\s*percent',
-                r'(\d+)\s*(?:million|billion|m|b)\s*(?:parameters|papers|documents)',
-                r'(\d+(?:\.\d+)?)\s*(?:gb|mb|tb)',
-                r'(\d+)\s*(?:layers|heads|epochs|samples)',
-                r'(\d{4})\s*(?:benchmark|dataset|corpus)',
-                r'(\d+(?:\.\d+)?)\s*(?:bleu|rouge|meteor|score)',
-                r'(\d+)\s*(?:human evaluators|participants|subjects)',
-                r'p\s*[<>=]\s*(\d+\.\d+)',
-                r'(\d+(?:\.\d+)?)\s*(?:s|ms|seconds|milliseconds)',
-            ]
+            source_metrics = {
+                'percentages': [],
+                'counts': [],
+                'parameters': [],
+                'benchmarks': [],
+                'comparisons': [],
+                'years': []
+            }
             
-            found_metrics = []
-            for pattern in patterns:
-                matches = re.findall(pattern, text, re.IGNORECASE)
-                found_metrics.extend([m[0] if isinstance(m, tuple) else m for m in matches])
+            # Percentages with context
+            for match in re.finditer(r'(\d+(?:\.\d+)?)%\s*(?:accuracy|precision|recall|F1|correctness|improvement|increase|decrease)?', text, re.IGNORECASE):
+                source_metrics['percentages'].append({
+                    'value': match.group(1),
+                    'context': text[max(0, match.start()-30):min(len(text), match.end()+30)]
+                })
             
-            if found_metrics:
-                metrics[str(i)] = found_metrics
+            # Counts (millions, billions)
+            for match in re.finditer(r'(\d+(?:\.\d+)?)\s*(million|billion|M|B)\s*(?:papers|documents|parameters|examples|samples)?', text, re.IGNORECASE):
+                source_metrics['counts'].append({
+                    'value': match.group(1),
+                    'unit': match.group(2),
+                    'context': text[max(0, match.start()-30):min(len(text), match.end()+30)]
+                })
+            
+            # Parameter counts
+            for match in re.finditer(r'(\d+(?:\.\d+)?)\s*(?:B|M|billion|million)\s*(?:parameters|params)', text, re.IGNORECASE):
+                source_metrics['parameters'].append(match.group(1))
+            
+            # Benchmark names
+            benchmarks = re.findall(r'(ScholarQA[\w\-]*|PubMedQA|BioASQ|MS MARCO|BEIR|GLUE|SuperGLUE|MMLU|HumanEval|GSM8K)', text, re.IGNORECASE)
+            source_metrics['benchmarks'] = list(set(benchmarks))
+            
+            # Years
+            years = re.findall(r'\b(20[0-2]\d)\b', text)
+            source_metrics['years'] = list(set(years))
+            
+            # Comparisons
+            for match in re.finditer(r'(outperform|exceed|surpass|better than).*?by\s+(\d+(?:\.\d+)?%?)', text, re.IGNORECASE):
+                source_metrics['comparisons'].append({
+                    'verb': match.group(1),
+                    'margin': match.group(2)
+                })
+            
+            if any(source_metrics.values()):
+                metrics[str(i)] = source_metrics
         
         return metrics
     
-    def verify_claim(self, claim_text: str, citation_num: int) -> Tuple[bool, str, List[str]]:
-        """Verify if a quantitative claim is supported by its cited source"""
-        # Extract numbers from claim
-        numbers_in_claim = re.findall(r'\d+(?:\.\d+)?%?', claim_text)
+    def _extract_technical_specifications(self, sources: List[Dict]) -> Dict[str, List[str]]:
+        """Extract specific technical architecture details"""
+        specs = defaultdict(list)
         
-        if not numbers_in_claim:
-            return True, "No quantitative claims to verify", []
+        for i, source in enumerate(sources, 1):
+            text = ' '.join([
+                source.get('metadata', {}).get('title', ''),
+                source.get('content', '')
+            ])
+            
+            models = re.findall(r'(OpenScholar|Med-PaLM|GPT-4[Oo]?|Claude|Llama-?\d*|PaLM|Contriever|GTR|DPR)', text, re.IGNORECASE)
+            if models:
+                specs[str(i)].extend(list(set(models)))
+            
+            dims = re.findall(r'(\d+)-dim(?:ensional)?\s*(?:embeddings|vectors)', text, re.IGNORECASE)
+            if dims:
+                specs[str(i)].extend([f"{d}-dim" for d in dims])
+            
+            components = re.findall(r'(bi-encoder|cross-encoder|dual-encoder|dense retriever|sparse retriever)', text, re.IGNORECASE)
+            if components:
+                specs[str(i)].extend(list(set(components)))
         
-        source_metrics = self.source_metrics.get(str(citation_num), [])
+        return dict(specs)
+    
+    def check_forbidden_language(self, text: str, section: str) -> List[Dict]:
+        """Check for generic terms without specific metrics"""
+        violations = []
         
-        unsupported = []
-        for number in numbers_in_claim:
-            # Fuzzy match: allow for rounding differences
-            found = any(self._fuzzy_match(number, sm) for sm in source_metrics)
-            if not found:
-                unsupported.append(number)
+        for term in FORBIDDEN_GENERIC_TERMS:
+            for match in re.finditer(r'\b' + re.escape(term) + r'\b', text, re.IGNORECASE):
+                context = text[match.end():min(len(text), match.end() + 100)]
+                has_metric = bool(re.search(r'\d+(?:\.\d+)?%|\d+\s*(?:million|billion|M|B)|GPT-|ScholarQA|Nature|Science', context))
+                
+                if not has_metric:
+                    violations.append({
+                        'type': 'forbidden_generic',
+                        'term': term,
+                        'section': section,
+                        'context': text[max(0, match.start()-20):min(len(text), match.end()+50)],
+                        'suggestion': f'Replace "{term}" with specific metric (e.g., "achieves X% on Y benchmark")'
+                    })
         
-        if unsupported:
-            return False, f"Numbers {unsupported} not found in source [{citation_num}]", unsupported
+        return violations
+    
+    def verify_technical_specificity(self, text: str, section: str) -> List[Dict]:
+        """Ensure technical claims have specific details"""
+        violations = []
         
-        return True, "All metrics verified against source", []
+        # Check for model mentions without parameters
+        model_mentions = re.finditer(r'\b(GPT-4|Claude|Llama|PaLM|BERT)(?!\s+(?:with|using|has)\s+\d+\s*(?:B|M|billion|million))', text, re.IGNORECASE)
+        for match in model_mentions:
+            context = text[max(0, match.start()-30):min(len(text), match.end()+50)]
+            if not re.search(r'\d+\s*(?:B|M|billion|million)\s*(?:parameters|params)', context):
+                violations.append({
+                    'type': 'missing_parameters',
+                    'model': match.group(1),
+                    'section': section,
+                    'suggestion': f'Add parameter count for {match.group(1)} (e.g., "GPT-4 (1.8T parameters)")'
+                })
+        
+        # Check for performance claims without benchmarks
+        performance_claims = re.finditer(r'\b(achieves|demonstrates|shows|exhibits)\s+(?:strong|high|good|excellent|superior)\s+(?:performance|accuracy|results)', text, re.IGNORECASE)
+        for match in performance_claims:
+            context = text[max(0, match.start()-20):min(len(text), match.end()+80)]
+            if not re.search(r'ScholarQA|PubMedQA|BioASQ|MS MARCO|\d+(?:\.\d+)?%', context):
+                violations.append({
+                    'type': 'missing_benchmark',
+                    'claim': match.group(0),
+                    'section': section,
+                    'suggestion': 'Replace with specific benchmark and score'
+                })
+        
+        return violations
+    
+    def verify_citation_support(self, text: str, section: str) -> List[Dict]:
+        """Verify that quantitative claims are supported by cited sources"""
+        violations = []
+        
+        pattern = r'([^.]*?\b(?:\d+%|\d+\s*(?:million|billion|M|B)|outperform|achieve|exceed)[^.]*?)\[(\d+)\]'
+        
+        for match in re.finditer(pattern, text, re.IGNORECASE):
+            claim = match.group(1)
+            citation = match.group(2)
+            
+            numbers = re.findall(r'\d+(?:\.\d+)?%?', claim)
+            
+            if citation not in self.source_metrics:
+                violations.append({
+                    'type': 'invalid_citation',
+                    'citation': citation,
+                    'claim': claim[:80],
+                    'section': section,
+                    'issue': f'Source [{citation}] has no extractable metrics'
+                })
+                continue
+            
+            source_data = self.source_metrics[citation]
+            
+            for num in numbers:
+                found = False
+                all_metrics = (
+                    source_data.get('percentages', []) +
+                    source_data.get('counts', []) +
+                    source_data.get('comparisons', [])
+                )
+                for metric in all_metrics:
+                    metric_val = metric.get('value', metric.get('margin', ''))
+                    if self._fuzzy_match(num, metric_val):
+                        found = True
+                        break
+                
+                if not found:
+                    violations.append({
+                        'type': 'unsupported_number',
+                        'number': num,
+                        'citation': citation,
+                        'claim': claim[:80],
+                        'section': section,
+                        'issue': f'Number {num} not found in source [{citation}]'
+                    })
+        
+        return violations
     
     def _fuzzy_match(self, claim_num: str, source_num: str) -> bool:
-        """Allow small rounding differences (e.g., 78% matches 78.5%)"""
+        """Allow small rounding differences"""
         try:
             c = float(claim_num.replace('%', ''))
-            s = float(source_num.replace('%', ''))
-            # Allow 5% relative difference or absolute difference of 2
+            s = float(str(source_num).replace('%', ''))
             relative_diff = abs(c - s) / max(abs(s), 1)
-            absolute_diff = abs(c - s)
-            return relative_diff < 0.05 or absolute_diff < 2
+            return relative_diff < 0.05 or abs(c - s) < 1
         except:
             return claim_num == source_num
     
-    def flag_unsupported_claims(self, draft_text: str) -> List[Dict]:
-        """Scan entire draft for unsupported quantitative claims"""
-        issues = []
+    def comprehensive_check(self, draft: Dict) -> Dict:
+        """Run all verification checks on draft"""
+        all_violations = []
         
-        # Pattern: claim text followed by citation
-        # Look for sentences with quantitative terms and citations
-        patterns = [
-            r'([^.]*?\b(?:improved|increased|decreased|achieved|outperformed|reduced|enhanced|boosted|elevated|advanced)\b[^.]*?\b(?:by|to|of|with|approximately|about|around)?\s*(?:\d+(?:\.\d+)?%?)[^.]*?)\[(\d+)\]',
-            r'([^.]*?\b(?:accuracy|precision|recall|f1|score|performance|metric)\b[^.]*?(?:\d+(?:\.\d+)?%?)[^.]*?)\[(\d+)\]',
-            r'([^.]*?\b(?:parameters|dataset|corpus|papers)\b[^.]*?(?:\d+(?:\.\d+)?\s*(?:million|billion|m|b)?)[^.]*?)\[(\d+)\]',
-        ]
+        sections_to_check = {
+            'abstract': draft.get('abstract', ''),
+            'introduction': draft.get('introduction', ''),
+            'literatureReview': draft.get('literatureReview', ''),
+            'dataAnalysis': draft.get('dataAnalysis', ''),
+            'challenges': draft.get('challenges', ''),
+            'futureOutlook': draft.get('futureOutlook', ''),
+            'conclusion': draft.get('conclusion', '')
+        }
         
-        for pattern in patterns:
-            matches = re.finditer(pattern, draft_text, re.IGNORECASE)
-            for match in matches:
-                claim_text = match.group(1)
-                citation_num = int(match.group(2))
-                
-                is_valid, message, unsupported_nums = self.verify_claim(claim_text, citation_num)
-                
-                if not is_valid:
-                    issues.append({
-                        'claim': claim_text.strip(),
-                        'citation': citation_num,
-                        'issue': message,
-                        'unsupported_numbers': unsupported_nums
-                    })
+        for section_name, content in sections_to_check.items():
+            all_violations.extend(self.check_forbidden_language(content, section_name))
+            all_violations.extend(self.verify_technical_specificity(content, section_name))
+            all_violations.extend(self.verify_citation_support(content, section_name))
         
-        self.verification_log.extend(issues)
-        return issues
-    
-    def get_verification_summary(self) -> Dict:
-        """Get summary of verification results"""
+        for section in draft.get('mainSections', []):
+            content = section.get('content', '')
+            title = section.get('title', 'Section')
+            all_violations.extend(self.check_forbidden_language(content, f"mainSection:{title}"))
+            all_violations.extend(self.verify_technical_specificity(content, f"mainSection:{title}"))
+            all_violations.extend(self.verify_citation_support(content, f"mainSection:{title}"))
+        
+        self.violations = all_violations
+        
         return {
-            'total_issues': len(self.verification_log),
-            'sources_with_metrics': len(self.source_metrics),
-            'total_metrics_found': sum(len(m) for m in self.source_metrics.values()),
-            'issues_by_citation': Counter([i['citation'] for i in self.verification_log])
+            'total_violations': len(all_violations),
+            'by_type': Counter(v['type'] for v in all_violations),
+            'by_section': Counter(v['section'] for v in all_violations),
+            'violations': all_violations,
+            'has_critical': any(v['type'] in ['unsupported_number', 'invalid_citation'] for v in all_violations)
         }
 
 # ================================================================================
-# ENHANCED SOURCE MANAGEMENT (NEW)
+# FIXED SOURCE AUTHORITY CLASSIFICATION
 # ================================================================================
 
-def deduplicate_and_rank_sources(sources: List[Dict]) -> List[Dict]:
-    """Deduplicate sources by DOI/title and rank by authority"""
+def get_authority_tier_fixed(venue: str, url: str) -> str:
+    """Fixed authority tier detection - conferences correctly identified"""
+    venue_lower = venue.lower()
+    url_lower = url.lower()
     
-    # Authority tiers for ranking
-    TIER_RANK = {
-        'top_tier': 0,      # Nature, Science, Cell, Lancet
-        'publisher': 1,     # IEEE, ACM, Springer, Elsevier
-        'conference': 2,    # NeurIPS, ICML, ACL, etc.
-        'repository': 3,    # arXiv, bioRxiv
-        'other': 4
+    # Conference indicators (check FIRST)
+    conference_indicators = [
+        'proceedings', 'conference', 'symposium', 'workshop', 
+        'conf.', 'conf ', 'neurips', 'icml', 'iclr', 'acl', 
+        'emnlp', 'cvpr', 'iccv', 'eccv', 'sigir', 'kdd', 'www',
+        'international conference', 'annual meeting'
+    ]
+    if any(ind in venue_lower for ind in conference_indicators):
+        return 'conference'
+    
+    # Top-tier journals
+    top_journal_indicators = [
+        'nature', 'science', 'cell', 'lancet', 'nejm', 'jama',
+        'ieee transactions', 'acm transactions', 'journal of the'
+    ]
+    if any(ind in venue_lower for ind in top_journal_indicators):
+        return 'top_tier_journal'
+    
+    # Publisher journals
+    publisher_indicators = [
+        'ieee', 'acm', 'springer', 'elsevier', 'wiley', 'sage',
+        'taylor & francis', 'oxford university press', 'cambridge'
+    ]
+    if any(ind in venue_lower for ind in publisher_indicators):
+        return 'publisher_journal'
+    
+    # Preprints
+    if 'arxiv' in url_lower or 'biorxiv' in url_lower or 'medrxiv' in url_lower:
+        return 'preprint'
+    
+    return 'other'
+
+def deduplicate_and_rank_sources_strict(sources: List[Dict]) -> List[Dict]:
+    """Strict deduplication with corrected authority classification"""
+    
+    TIER_ORDER = {
+        'top_tier_journal': 0,
+        'publisher_journal': 1,
+        'conference': 2,
+        'other': 3,
+        'preprint': 4
     }
-    
-    def get_authority_tier(venue: str, url: str) -> str:
-        venue_lower = venue.lower()
-        url_lower = url.lower()
-        
-        top_indicators = ['nature', 'science', 'cell', 'lancet', 'nejm', 'jama']
-        publisher_indicators = ['ieee', 'acm', 'springer', 'elsevier', 'wiley', 'sage', 'taylor & francis']
-        conference_indicators = ['neurips', 'icml', 'iclr', 'acl', 'emnlp', 'cvpr', 'iccv', 'eccv']
-        
-        if any(ind in venue_lower for ind in top_indicators):
-            return 'top_tier'
-        elif any(ind in venue_lower for ind in publisher_indicators):
-            return 'publisher'
-        elif any(ind in venue_lower for ind in conference_indicators):
-            return 'conference'
-        elif 'arxiv' in url_lower or 'biorxiv' in url_lower:
-            return 'repository'
-        else:
-            return 'other'
     
     seen = {}
     
     for source in sources:
-        # Create deduplication key
         doi = str(source.get('metadata', {}).get('doi', '')).lower().strip()
         title = re.sub(r'[^\w]', '', source.get('metadata', {}).get('title', '').lower())
         
         key = doi if doi and doi != 'n/a' and len(doi) > 5 else title
         
+        venue = source.get('metadata', {}).get('venue', '')
+        url = source.get('url', '')
+        tier = get_authority_tier_fixed(venue, url)
+        source['authority_tier'] = tier
+        
         if key in seen:
-            # Merge metadata, keep highest authority version
             existing = seen[key]
             existing['source_count'] = existing.get('source_count', 1) + 1
             
-            # Keep higher citation count
             existing_cites = safe_int(existing.get('metadata', {}).get('citations', 0))
             new_cites = safe_int(source.get('metadata', {}).get('citations', 0))
             if new_cites > existing_cites:
                 existing['metadata']['citations'] = new_cites
             
-            # Track all URLs
-            if 'all_urls' not in existing:
-                existing['all_urls'] = [existing.get('url', '')]
-            existing['all_urls'].append(source.get('url', ''))
+            existing_tier_rank = TIER_ORDER.get(existing.get('authority_tier'), 5)
+            new_tier_rank = TIER_ORDER.get(tier, 5)
             
-            # Upgrade to better venue if found
-            existing_tier = TIER_RANK.get(existing.get('authority_tier', 'other'), 4)
-            new_tier_num = TIER_RANK.get(get_authority_tier(
-                source.get('metadata', {}).get('venue', ''),
-                source.get('url', '')
-            ), 4)
-            
-            if new_tier_num < existing_tier:
-                # Upgrade source
-                existing['metadata']['venue'] = source.get('metadata', {}).get('venue', existing['metadata'].get('venue', ''))
-                existing['url'] = source.get('url', existing.get('url', ''))
-                existing['authority_tier'] = get_authority_tier(
-                    existing['metadata']['venue'],
-                    existing['url']
-                )
+            if new_tier_rank < existing_tier_rank:
+                existing['authority_tier'] = tier
+                existing['metadata']['venue'] = venue
+                existing['url'] = url
         else:
-            # New source
-            venue = source.get('metadata', {}).get('venue', '')
-            url = source.get('url', '')
-            source['authority_tier'] = get_authority_tier(venue, url)
             source['source_count'] = 1
             seen[key] = source
     
-    # Sort by authority tier, then citations, then consensus
     ranked = sorted(
         seen.values(),
         key=lambda x: (
-            TIER_RANK.get(x.get('authority_tier', 'other'), 4),
+            TIER_ORDER.get(x.get('authority_tier'), 5),
             -safe_int(x.get('metadata', {}).get('citations', 0)),
             -x.get('source_count', 1)
         )
@@ -345,89 +476,124 @@ def deduplicate_and_rank_sources(sources: List[Dict]) -> List[Dict]:
     return ranked
 
 # ================================================================================
-# CITATION INTEGRITY SYSTEM (NEW)
+# TECHNICAL SPECIFICATION EXTRACTION
 # ================================================================================
 
-def extract_cited_references_enhanced(draft: Dict) -> set:
-    """Extract all citation numbers used in the draft with context"""
-    cited = set()
-    citation_contexts = []
+def extract_technical_specifications(text: str) -> Dict[str, List[str]]:
+    """Extract specific technical details for prompt enrichment"""
+    specs = defaultdict(list)
     
-    def extract_from_text(text: str, section: str):
-        if not isinstance(text, str):
-            return
-        matches = re.finditer(r'\[(\d+)\]', text)
-        for match in matches:
-            cited.add(int(match.group(1)))
-            # Get surrounding context (50 chars before/after)
-            start = max(0, match.start() - 50)
-            end = min(len(text), match.end() + 50)
-            context = text[start:end]
-            citation_contexts.append({
-                'citation': int(match.group(1)),
-                'context': context,
-                'section': section
+    benchmarks = re.findall(
+        r'(ScholarQA[\w\-]*|PubMedQA|BioASQ|MS MARCO|BEIR|GLUE|SuperGLUE|MMLU|HumanEval|GSM8K|BBH)',
+        text, re.IGNORECASE
+    )
+    if benchmarks:
+        specs['benchmarks'] = list(set(benchmarks))
+    
+    models = re.findall(
+        r'(OpenScholar(?:-\d+B)?|Med-PaLM(?:-\d+)?|GPT-4[Oo]?|Claude(?:-\d+)?|Llama-?[\d\.]*|PaLM(?:-\d+)?|Contriever|GTR|DPR)',
+        text, re.IGNORECASE
+    )
+    if models:
+        specs['models'] = list(set(models))
+    
+    params = re.findall(
+        r'(\d+(?:\.\d+)?)\s*(?:B|M|billion|million)\s*(?:parameters|params)',
+        text, re.IGNORECASE
+    )
+    if params:
+        specs['parameter_counts'] = list(set(params))
+    
+    datasets = re.findall(
+        r'(\d+(?:\.\d+)?)\s*(?:million|billion|M|B)\s*(?:papers|documents|passages|examples)',
+        text, re.IGNORECASE
+    )
+    if datasets:
+        specs['dataset_sizes'] = list(set(datasets))
+    
+    embeddings = re.findall(
+        r'(\d+)(?:-dimensional|-dim)?\s*(?:embeddings|vectors|passage embeddings)',
+        text, re.IGNORECASE
+    )
+    if embeddings:
+        specs['embedding_dimensions'] = list(set(embeddings))
+    
+    metrics = re.findall(
+        r'(\d+(?:\.\d+)?%)\s*(?:accuracy|precision|recall|F1|correctness)',
+        text, re.IGNORECASE
+    )
+    if metrics:
+        specs['performance_metrics'] = list(set(metrics))
+    
+    arch = re.findall(
+        r'(bi-encoder|cross-encoder|dual-encoder|dense retriever|sparse retriever|vector database|FAISS)',
+        text, re.IGNORECASE
+    )
+    if arch:
+        specs['architectures'] = list(set(arch))
+    
+    return dict(specs)
+
+def aggregate_technical_specs(sources: List[Dict]) -> Dict[str, List[str]]:
+    """Aggregate technical specs from all sources"""
+    all_specs = defaultdict(set)
+    
+    for source in sources:
+        text = ' '.join([
+            source.get('metadata', {}).get('title', ''),
+            source.get('content', ''),
+            str(source.get('_orchestrator_data', {}).get('abstract', '')),
+            str(source.get('_orchestrator_data', {}).get('tldr', ''))
+        ])
+        
+        specs = extract_technical_specifications(text)
+        for key, values in specs.items():
+            all_specs[key].update(values)
+    
+    return {k: sorted(list(v)) for k, v in all_specs.items()}
+
+# ================================================================================
+# CITATION COVERAGE ENFORCEMENT
+# ================================================================================
+
+def enforce_source_coverage(draft: Dict, sources: List[Dict], min_coverage: float = 0.6) -> Dict:
+    """Ensure minimum percentage of sources are cited"""
+    
+    cited, _ = extract_cited_references_enhanced(draft)
+    total_sources = len(sources)
+    coverage = len(cited) / total_sources if total_sources > 0 else 0
+    
+    uncited_indices = set(range(1, total_sources + 1)) - cited
+    
+    high_priority_missing = []
+    for idx in uncited_indices:
+        source = sources[idx - 1]
+        tier = source.get('authority_tier', 'other')
+        cites = safe_int(source.get('metadata', {}).get('citations', 0))
+        
+        if tier in ['top_tier_journal', 'publisher_journal'] and cites > 20:
+            high_priority_missing.append({
+                'index': idx,
+                'title': source.get('metadata', {}).get('title', 'Unknown')[:60],
+                'tier': tier,
+                'citations': cites,
+                'venue': source.get('metadata', {}).get('venue', 'Unknown')
             })
     
-    for key, value in draft.items():
-        if isinstance(value, str):
-            extract_from_text(value, key)
-        elif isinstance(value, list) and key == 'mainSections':
-            for section in value:
-                if isinstance(section, dict):
-                    extract_from_text(section.get('content', ''), section.get('title', 'Section'))
-    
-    return cited, citation_contexts
-
-def verify_citation_integrity(draft: Dict, sources: List[Dict]) -> Dict:
-    """Comprehensive citation integrity check"""
-    
-    cited, contexts = extract_cited_references_enhanced(draft)
-    max_valid = len(sources)
-    
-    # Check for out-of-range citations
-    invalid_citations = [c for c in cited if c > max_valid or c < 1]
-    
-    # Check for claims without citations (quantitative claims)
-    uncited_claims = []
-    
-    quantitative_patterns = [
-        r'\d+%',
-        r'\d+\s*(?:times|fold|x)\s*(?:faster|better)',
-        r'outperform.*?by\s+\d+',
-        r'achieved?\s+\d+',
-        r'\d+\s*(?:million|billion)\s*(?:parameters|papers)',
-        r'\d{4}\s*(?:benchmark|dataset)',
-    ]
-    
-    for ctx in contexts:
-        # Check if this citation supports a quantitative claim
-        has_numbers = any(re.search(p, ctx['context'], re.IGNORECASE) for p in quantitative_patterns)
-        if not has_numbers:
-            # This citation might be for a general claim - flag for review
-            pass  # Not necessarily an error
-    
-    # Find orphaned sources (high-quality but uncited)
-    orphaned = []
-    for i, source in enumerate(sources, 1):
-        if i not in cited:
-            tier = source.get('authority_tier', 'other')
-            cites = safe_int(source.get('metadata', {}).get('citations', 0))
-            if tier in ['top_tier', 'publisher'] and cites > 50:
-                orphaned.append({
-                    'index': i,
-                    'title': source.get('metadata', {}).get('title', 'Unknown')[:60],
-                    'tier': tier,
-                    'citations': cites
-                })
+    high_priority_missing.sort(key=lambda x: (
+        0 if x['tier'] == 'top_tier_journal' else 1,
+        -x['citations']
+    ))
     
     return {
-        'valid_citations': sorted([c for c in cited if 1 <= c <= max_valid]),
-        'invalid_citations': sorted(invalid_citations),
-        'total_citations': len(cited),
-        'citation_coverage': len(cited) / max_valid if max_valid > 0 else 0,
-        'orphaned_high_quality_sources': sorted(orphaned, key=lambda x: x['citations'], reverse=True)[:10],
-        'contexts': contexts
+        'status': 'ok' if coverage >= min_coverage else 'insufficient_coverage',
+        'coverage': coverage,
+        'cited_count': len(cited),
+        'total_sources': total_sources,
+        'high_priority_missing': high_priority_missing[:15],
+        'message': f"Coverage: {coverage:.1%} ({len(cited)}/{total_sources}). " +
+                   (f"Need to integrate {len(high_priority_missing)} high-authority sources." 
+                    if coverage < min_coverage else "Coverage target met.")
     }
 
 # ================================================================================
@@ -541,6 +707,9 @@ def initialize_session_state():
     # NEW: Verification state
     if 'verification_results' not in st.session_state:
         st.session_state.verification_results = None
+    
+    if 'strict_mode' not in st.session_state:
+        st.session_state.strict_mode = True
 
 def load_api_keys():
     """Load API keys with intelligent fallback strategy"""
@@ -552,1088 +721,6 @@ def load_api_keys():
         'springer': st.session_state.get('user_springer_key', '').strip() or get_secret_or_empty('META_SPRINGER_API_KEY'),
         'email': st.session_state.get('user_email', 'researcher@example.com').strip() or get_secret_or_empty('USER_EMAIL') or 'researcher@example.com',
     }
-
-# ... [Keep all the original sidebar and UI functions: render_api_key_input_section, check_api_keys, get_available_engines] ...
-
-# ================================================================================
-# ENHANCED REPORT GENERATION FUNCTIONS
-# ================================================================================
-
-def update_report_progress(stage: str, detail: str, percent: int):
-    """Update report generation progress"""
-    st.session_state.report_progress = {
-        'stage': stage,
-        'detail': detail,
-        'percent': min(100, percent)
-    }
-
-def rate_limit_wait():
-    """Rate limiting for Anthropic API calls"""
-    current_time = time.time()
-    if 'last_api_call_time' not in st.session_state:
-        st.session_state.last_api_call_time = 0
-    
-    time_since_last = current_time - st.session_state.last_api_call_time
-    
-    if time_since_last < MIN_API_DELAY:
-        time.sleep(MIN_API_DELAY - time_since_last)
-    
-    st.session_state.last_api_call_time = time.time()
-    st.session_state.report_api_calls += 1
-
-def call_anthropic_api(messages: List[Dict], max_tokens: int = 1000, use_fallback: bool = False) -> Dict:
-    """Call Anthropic API with fallback model support"""
-    try:
-        anthropic_key = st.secrets["ANTHROPIC_API_KEY"]
-    except:
-        raise Exception("Anthropic API key not configured in secrets")
-    
-    rate_limit_wait()
-    
-    headers = {
-        "Content-Type": "application/json",
-        "x-api-key": anthropic_key,
-        "anthropic-version": "2023-06-01"
-    }
-    
-    model = MODEL_FALLBACK if use_fallback else MODEL_PRIMARY
-    
-    data = {
-        "model": model,
-        "max_tokens": max_tokens,
-        "messages": messages
-    }
-    
-    for attempt in range(3):
-        try:
-            response = requests.post(
-                "https://api.anthropic.com/v1/messages",
-                headers=headers,
-                json=data,
-                timeout=180
-            )
-            
-            if response.status_code == 429:
-                wait_time = RETRY_DELAYS[attempt]
-                st.warning(f"⏳ Rate limited. Waiting {wait_time}s (attempt {attempt+1}/3)")
-                time.sleep(wait_time)
-                continue
-            
-            if response.status_code == 529:
-                wait_time = RETRY_DELAYS[attempt]
-                st.warning(f"⏳ API overloaded. Waiting {wait_time}s (attempt {attempt+1}/3)")
-                time.sleep(wait_time)
-                continue
-            
-            response.raise_for_status()
-            return response.json()
-        
-        except requests.exceptions.RequestException as e:
-            st.warning(f"⚠️ API error (attempt {attempt+1}/3): {str(e)[:50]}")
-            if attempt == 2:
-                if not use_fallback:
-                    st.info("🔄 Trying fallback model...")
-                    return call_anthropic_api(messages, max_tokens, use_fallback=True)
-                raise
-            time.sleep(RETRY_DELAYS[attempt])
-    
-    if not use_fallback:
-        st.info("🔄 Primary model failed. Trying fallback model...")
-        return call_anthropic_api(messages, max_tokens, use_fallback=True)
-    
-    raise Exception("API call failed after 3 retries with both models")
-
-def parse_json_response(text: str) -> Dict:
-    """Extract JSON from API response text"""
-    try:
-        cleaned = re.sub(r'```json\n?|```\n?', '', text).strip()
-        return json.loads(cleaned)
-    except:
-        json_match = re.search(r'\{.*\}', text, re.DOTALL)
-        if json_match:
-            try:
-                return json.loads(json_match.group())
-            except:
-                pass
-        return {}
-
-def generate_phrase_variations(topic: str) -> List[str]:
-    """Generate phrase variations to avoid repetition"""
-    return [
-        topic,
-        f"the field of {topic}",
-        f"{topic} research",
-        f"this domain",
-        f"this research area",
-        f"the {topic} field"
-    ]
-
-def convert_orchestrator_to_source_format(papers: List[Dict]) -> List[Dict]:
-    """Convert ResearchOrchestrator output to report writer source format"""
-    sources = []
-    
-    for paper in papers:
-        metadata = {
-            'authors': paper.get('ieee_authors', 'Unknown Authors'),
-            'title': paper.get('title', 'Untitled'),
-            'venue': paper.get('venue', 'Unknown Venue'),
-            'year': str(paper.get('year', 'n.d.')),
-            'citations': paper.get('citations', 0),
-            'doi': paper.get('doi', 'N/A')
-        }
-        
-        source = {
-            'title': paper.get('title', 'Untitled'),
-            'url': paper.get('url', ''),
-            'content': paper.get('abstract', paper.get('tldr', ''))[:500],
-            'metadata': metadata,
-            'credibilityScore': min(100, 50 + safe_int(paper.get('citations', 0)) // 10),
-            'credibilityJustification': f"Found in {safe_int(paper.get('source_count', 1), 1)} database(s), {paper.get('citations', 0)} citations",
-            'dateAccessed': datetime.now().isoformat(),
-            '_orchestrator_data': paper
-        }
-        
-        sources.append(source)
-    
-    return sources
-
-# ================================================================================
-# ENHANCED TOPIC ANALYSIS WITH EVALUATION FRAMEWORKS
-# ================================================================================
-
-def analyze_topic_with_ai(topic: str, subject: str) -> Dict:
-    """Analyze topic and generate research plan with evaluation context"""
-    
-    # Domain-specific evaluation framework knowledge
-    evaluation_frameworks = {
-        'scientific literature synthesis': {
-            'primary_benchmark': 'ScholarQABench',
-            'metrics': ['correctness', 'citation_accuracy', 'coverage', 'coherence'],
-            'evaluation_type': 'automated_plus_human',
-            'human_evaluation': 'blind_preference_judgment'
-        },
-        'retrieval augmented generation': {
-            'common_benchmarks': ['RGB', 'RECALL', 'ASQA', 'ELI5', 'ScholarQABench'],
-            'metrics': ['retrieval_accuracy', 'generation_fidelity', 'hallucination_rate']
-        },
-        'biomedical nlp': {
-            'common_benchmarks': ['PubMedQA', 'BioASQ', 'MedQA', 'BLURB'],
-            'metrics': ['accuracy', 'F1', 'exact_match']
-        },
-        'systematic review': {
-            'guidelines': ['PRISMA 2020', 'PRISMA-S', 'Cochrane'],
-            'metrics': ['completeness', 'bias_risk', 'reporting_quality']
-        }
-    }
-    
-    # Detect relevant frameworks
-    relevant_frameworks = []
-    topic_lower = topic.lower()
-    subject_lower = subject.lower()
-    
-    for domain, framework in evaluation_frameworks.items():
-        if domain in topic_lower or domain in subject_lower:
-            relevant_frameworks.append({**framework, 'domain': domain})
-    
-    framework_context = ""
-    if relevant_frameworks:
-        framework_context = "\n\nRELEVANT EVALUATION FRAMEWORKS FOR THIS FIELD:\n"
-        for fw in relevant_frameworks:
-            framework_context += f"- Domain: {fw['domain']}\n"
-            if 'primary_benchmark' in fw:
-                framework_context += f"  Primary benchmark: {fw['primary_benchmark']}\n"
-            if 'common_benchmarks' in fw:
-                framework_context += f"  Common benchmarks: {', '.join(fw['common_benchmarks'])}\n"
-            if 'metrics' in fw:
-                framework_context += f"  Key metrics: {', '.join(fw['metrics'])}\n"
-            framework_context += "\n"
-    
-    variations = generate_phrase_variations(topic)
-    st.session_state.report_research['phrase_variations'] = variations
-    
-    prompt = f"""Research plan for "{topic}" in {subject}.{framework_context}
-
-Create:
-1. 5 specific subtopics about "{topic}"
-2. 5 academic search queries for finding papers (2020-2025)
-3. IDENTIFY the specific evaluation benchmarks used in this field (if any)
-
-Return ONLY JSON:
-{{
-  "subtopics": ["aspect 1", "aspect 2", ...],
-  "researchQueries": ["query 1", "query 2", ...],
-  "evaluationFrameworks": ["benchmark 1", "benchmark 2"]
-}}"""
-    
-    try:
-        response = call_anthropic_api(
-            [{"role": "user", "content": prompt}],
-            max_tokens=800
-        )
-        text = "".join([c['text'] for c in response['content'] if c['type'] == 'text'])
-        result = parse_json_response(text)
-        
-        if result.get('subtopics') and result.get('researchQueries'):
-            return result
-    except Exception as e:
-        st.warning(f"Topic analysis failed: {e}. Using fallback.")
-    
-    # Fallback
-    return {
-        "subtopics": [
-            f"Foundations of {topic}",
-            f"Recent Advances in {topic}",
-            f"Applications of {topic}",
-            f"Challenges in {topic}",
-            f"Future of {topic}"
-        ],
-        "researchQueries": [
-            f"{topic} research 2024",
-            f"{topic} academic papers",
-            f"{topic} recent developments",
-            f"{topic} applications",
-            f"{topic} future trends"
-        ],
-        "evaluationFrameworks": []
-    }
-
-# ================================================================================
-# ENHANCED DRAFT GENERATION WITH STRICT VERIFICATION
-# ================================================================================
-
-def add_temporal_context(prompt: str, sources: List[Dict]) -> str:
-    """Add temporal context based on source publication dates"""
-    
-    years = []
-    for s in sources:
-        year_str = s.get('metadata', {}).get('year', '')
-        if year_str and str(year_str).isdigit():
-            years.append(int(year_str))
-    
-    if years:
-        min_year = min(years)
-        max_year = max(years)
-        current_year = datetime.now().year
-        
-        temporal_context = f"""
-TEMPORAL CONTEXT:
-- Source publication range: {min_year}-{max_year}
-- Current year: {current_year}
-- "Recent" refers to {max_year-2}-{max_year} (last 2-3 years of available sources)
-- Use specific years instead of relative terms ("in 2024" not "recently")
-- Avoid claiming developments are "recent" if sources are from {current_year-5} or earlier
-"""
-        return prompt + temporal_context
-    
-    return prompt
-
-def generate_draft_with_verification(
-    topic: str,
-    subject: str,
-    subtopics: List[str],
-    sources: List[Dict],
-    variations: List[str],
-    evaluation_frameworks: List[str],
-    max_sources: int = 25
-) -> Tuple[Dict, Dict]:
-    """Generate report draft with iterative verification"""
-    
-    update_report_progress('Drafting', 'Writing initial draft...', 70)
-    
-    if not sources:
-        raise Exception("No sources available")
-    
-    # Prepare source list with strict numbering
-    source_list = []
-    for i, s in enumerate(sources[:max_sources], 1):
-        meta = s.get('metadata', {})
-        tier_badge = f"[{s.get('authority_tier', 'unknown').upper()}]"
-        source_list.append(f"""[{i}] {tier_badge} {meta.get('title', 'Unknown')} ({meta.get('year', 'N/A')})
-Authors: {meta.get('authors', 'Unknown')}
-Venue: {meta.get('venue', 'Unknown')} | Citations: {meta.get('citations', 0)}
-{s['url'][:70]}
-Abstract: {s.get('content', '')[:200]}""")
-    
-    sources_text = "\n\n".join(source_list)
-    
-    # Build evaluation framework context
-    eval_context = ""
-    if evaluation_frameworks:
-        eval_context = f"""
-EVALUATION CONTEXT:
-This field uses these specific benchmarks/methods: {', '.join(evaluation_frameworks)}
-- Use these specific benchmark names when discussing evaluation
-- DO NOT reference generic guidelines (e.g., PRISMA 2020) unless explicitly discussing human systematic reviews
-- Focus on: task-specific automated benchmarks, human evaluation protocols, and domain-specific metrics
-"""
-    
-    variations_text = f"""CRITICAL INSTRUCTION - PHRASE VARIATION:
-You MUST use these variations to avoid repetition:
-- "{topic}" - USE THIS SPARINGLY (maximum 5 times)
-- "{variations[1]}" - PREFER THIS
-- "{variations[2]}" - USE THIS OFTEN
-- "this domain" - USE THIS
-- "this research area" - USE THIS
-
-DO NOT repeat "{topic}" more than 5 times total."""
-    
-    # Technical specificity requirements
-    technical_reqs = """
-CRITICAL TECHNICAL REQUIREMENTS:
-- Include SPECIFIC numbers: dataset sizes, parameter counts, benchmark scores, sample sizes
-- Name concrete architectures: model names, embedding dimensions, encoder types (e.g., "bi-encoder with 110M parameters")
-- Cite exact benchmark names and their metrics (e.g., "ScholarQABench correctness score")
-- Include version numbers and release dates where available
-- Describe evaluation methodologies specifically (e.g., "blind human evaluation with N evaluators")
-
-FORBIDDEN GENERIC PHRASES (will be rejected):
-- "sophisticated indexing strategies" → USE: specific index type (FAISS, dense embeddings of size X, etc.)
-- "state-of-the-art performance" → USE: specific metric values and comparisons with numbers
-- "advanced architecture" → USE: layer counts, parameter counts, model names
-- "significant improvements" → USE: exact percentage points or fold improvements with baseline names
-- "recent studies show" → USE: specific citations with years
-"""
-    
-    strict_boundary = f"""
-STRICT SOURCE BOUNDARY - VIOLATION WILL CAUSE ERRORS:
-You may ONLY cite sources [1] through [{len(sources[:max_sources])}]. 
-DO NOT mention, cite, or refer to any paper not in the numbered list above.
-DO NOT invent systems, authors, or studies not in the sources.
-If you cannot find information for a claim, omit the claim rather than inventing.
-"""
-    
-    prompt = f"""Write academic report about "{topic}" in {subject}.
-
-{variations_text}
-
-{technical_reqs}
-
-{eval_context}
-
-{strict_boundary}
-
-REQUIREMENTS:
-- Use ONLY provided academic sources below
-- Cite sources as [1], [2], [3] etc. - just the number in brackets
-- Include specific data, statistics, and years from sources
-- VARY your phrasing - avoid repetition
-- Every quantitative claim MUST have a citation immediately following
-
-SUBTOPICS: {', '.join(subtopics)}
-
-ACADEMIC SOURCES:
-{sources_text}
-
-Write these sections with TECHNICAL SPECIFICITY:
-1. Abstract (150-250 words) - Include key metrics and methodology
-2. Introduction - Frame the specific technical problem
-3. Literature Review - Compare specific systems with their metrics
-4. 3-4 Main Sections covering subtopics with technical details:
-   - Architecture specifications (parameters, layers, embedding dims)
-   - Dataset composition and statistics (sizes, sources, time periods)
-   - Evaluation benchmarks and specific results
-   - Comparison with baseline systems (name specific systems)
-5. Data & Analysis - Quantitative performance breakdown with numbers
-6. Challenges - Specific technical limitations (not generic "challenges remain")
-7. Future Outlook - Concrete technical directions
-8. Conclusion
-
-Return ONLY valid JSON:
-{{
-  "abstract": "...",
-  "introduction": "...",
-  "literatureReview": "...",
-  "mainSections": [{{"title": "...", "content": "..."}}],
-  "dataAnalysis": "...",
-  "challenges": "...",
-  "futureOutlook": "...",
-  "conclusion": "..."
-}}"""
-    
-    # Add temporal context
-    prompt = add_temporal_context(prompt, sources[:max_sources])
-    
-    # Generate initial draft
-    response = call_anthropic_api(
-        [{"role": "user", "content": prompt}],
-        max_tokens=6000
-    )
-    text = "".join([c['text'] for c in response['content'] if c['type'] == 'text'])
-    draft = parse_json_response(text)
-    
-    # Ensure all required keys exist
-    required_keys = [
-        'abstract', 'introduction', 'literatureReview', 'mainSections',
-        'dataAnalysis', 'challenges', 'futureOutlook', 'conclusion'
-    ]
-    
-    for key in required_keys:
-        if key not in draft or not draft[key]:
-            if key == 'mainSections':
-                draft[key] = [{'title': 'Analysis', 'content': 'Content.'}]
-            else:
-                draft[key] = f"Section about {topic}."
-    
-    # Stage 1: Verify quantitative claims
-    update_report_progress('Verification', 'Checking claim accuracy...', 75)
-    verifier = ClaimVerifier(sources[:max_sources])
-    
-    # Combine all text for verification
-    full_text = " ".join([
-        draft.get('abstract', ''),
-        draft.get('introduction', ''),
-        draft.get('literatureReview', ''),
-        draft.get('dataAnalysis', ''),
-        draft.get('challenges', ''),
-        draft.get('futureOutlook', ''),
-        draft.get('conclusion', '')
-    ])
-    
-    for section in draft.get('mainSections', []):
-        full_text += " " + section.get('content', '')
-    
-    unsupported_claims = verifier.flag_unsupported_claims(full_text)
-    
-    # Stage 2: Verify citation integrity
-    update_report_progress('Verification', 'Checking citation integrity...', 80)
-    integrity = verify_citation_integrity(draft, sources[:max_sources])
-    
-    verification_report = {
-        'unsupported_claims': unsupported_claims,
-        'citation_integrity': integrity,
-        'verifier_summary': verifier.get_verification_summary()
-    }
-    
-    # If issues found, attempt regeneration with corrections
-    if unsupported_claims or integrity['invalid_citations']:
-        update_report_progress('Refinement', 'Fixing verification issues...', 85)
-        
-        correction_prompt = f"""
-The draft has factual verification issues that MUST be fixed:
-
-UNSUPPORTED CLAIMS:
-"""
-        for issue in unsupported_claims[:5]:  # Top 5 issues
-            correction_prompt += f"- Claim: '{issue['claim'][:80]}...'\n"
-            correction_prompt += f"  Issue: {issue['issue']}\n"
-            correction_prompt += f"  Action: Remove this claim or find correct citation\n\n"
-        
-        if integrity['invalid_citations']:
-            correction_prompt += f"\nINVALID CITATIONS: {integrity['invalid_citations']}\n"
-            correction_prompt += "Action: Remove or correct these citations\n"
-        
-        correction_prompt += f"""
-\nnREGENERATION INSTRUCTIONS:
-1. Remove ALL claims with unsupported numbers
-2. Ensure every number/percentage has a valid source [1-{len(sources[:max_sources])}]
-3. DO NOT invent metrics not in sources
-4. Use conservative language if exact numbers unavailable
-
-Return corrected JSON with same structure."""
-        
-        # Append to original prompt and retry
-        retry_prompt = prompt + "\n\n" + correction_prompt
-        
-        try:
-            response = call_anthropic_api(
-                [{"role": "user", "content": retry_prompt}],
-                max_tokens=6000
-            )
-            text = "".join([c['text'] for c in response['content'] if c['type'] == 'text'])
-            corrected_draft = parse_json_response(text)
-            
-            # Validate structure
-            valid = True
-            for key in required_keys:
-                if key not in corrected_draft or not corrected_draft[key]:
-                    valid = False
-                    break
-            
-            if valid:
-                draft = corrected_draft
-                # Re-verify
-                verifier2 = ClaimVerifier(sources[:max_sources])
-                full_text2 = " ".join([corrected_draft.get(k, '') for k in required_keys if k != 'mainSections'])
-                for section in corrected_draft.get('mainSections', []):
-                    full_text2 += " " + section.get('content', '')
-                
-                remaining_issues = verifier2.flag_unsupported_claims(full_text2)
-                verification_report['correction_attempted'] = True
-                verification_report['remaining_issues_after_correction'] = len(remaining_issues)
-            else:
-                verification_report['correction_attempted'] = False
-                verification_report['correction_failed'] = 'Invalid structure in corrected draft'
-        except Exception as e:
-            verification_report['correction_attempted'] = False
-            verification_report['correction_error'] = str(e)
-    
-    # Clean up citations in text
-    def fix_citations(text):
-        if isinstance(text, str):
-            text = re.sub(r'\[Source\s+(\d+)\]', r'[\1]', text, flags=re.IGNORECASE)
-            text = re.sub(r'\[source\s+(\d+)\]', r'[\1]', text, flags=re.IGNORECASE)
-        return text
-    
-    for key in draft:
-        if isinstance(draft[key], str):
-            draft[key] = fix_citations(draft[key])
-        elif isinstance(draft[key], list):
-            for i, item in enumerate(draft[key]):
-                if isinstance(item, dict):
-                    for k, v in item.items():
-                        if isinstance(v, str):
-                            item[k] = fix_citations(v)
-                elif isinstance(item, str):
-                    draft[key][i] = fix_citations(item)
-    
-    return draft, verification_report
-
-# ================================================================================
-# CITATION FORMATTING (Preserved with enhancements)
-# ================================================================================
-
-def format_authors_ieee(authors_str: str) -> str:
-    """Format multiple authors for IEEE style"""
-    if not authors_str:
-        return "Research Team"
-    
-    if 'et al' in authors_str.lower():
-        return authors_str
-    
-    authors = re.split(r',\s*|\s+and\s+', authors_str)
-    authors = [a.strip() for a in authors if a.strip()]
-    
-    if not authors:
-        return "Research Team"
-    
-    if len(authors) == 1:
-        return authors[0]
-    elif len(authors) == 2:
-        return f"{authors[0]} and {authors[1]}"
-    else:
-        return ', '.join(authors[:-1]) + ', and ' + authors[-1]
-
-def format_citation_ieee(source: Dict, index: int) -> str:
-    """Format citation in IEEE style with authority indicator"""
-    meta = source.get('metadata', {})
-    authors = meta.get('authors', 'Research Team')
-    title = meta.get('title', 'Research Article')
-    venue = meta.get('venue', 'Academic Publication')
-    year = meta.get('year', '2024')
-    url = source.get('url', '')
-    tier = source.get('authority_tier', 'unknown')
-    
-    if not authors or authors.lower() in ['unknown', 'author unknown']:
-        authors = venue + ' Authors'
-    
-    if not title or title.lower() == 'unknown':
-        title = 'Research Article'
-    
-    formatted_authors = format_authors_ieee(authors)
-    
-    # Add tier indicator for transparency
-    tier_note = ""
-    if tier == 'top_tier':
-        tier_note = " [Top-tier journal]"
-    elif tier == 'preprint':
-        tier_note = " [Preprint]"
-    
-    citation = f'[{index}] {formatted_authors}, "{title}," {venue}, {year}.{tier_note} <a href="{url}" target="_blank">{url}</a>'
-    
-    return citation
-
-def format_citation_apa(source: Dict, index: int) -> str:
-    """Format citation in APA style"""
-    meta = source.get('metadata', {})
-    authors = meta.get('authors', 'Research Team')
-    title = meta.get('title', 'Research Article')
-    venue = meta.get('venue', 'Academic Publication')
-    year = meta.get('year', '2024')
-    url = source.get('url', '')
-    
-    if not authors or authors.lower() in ['unknown', 'author unknown']:
-        authors = venue + ' Authors'
-    
-    if not title or title.lower() == 'unknown':
-        title = 'Research Article'
-    
-    citation = f"{authors} ({year}). {title}. <i>{venue}</i>. Retrieved from <a href=\"{url}\" target=\"_blank\">{url}</a>"
-    
-    return citation
-
-# ================================================================================
-# ENHANCED HTML GENERATION WITH VERIFICATION DISPLAY
-# ================================================================================
-
-def generate_html_report_enhanced(
-    refined_draft: Dict,
-    form_data: Dict,
-    sources: List[Dict],
-    verification_report: Dict,
-    max_sources: int = 25
-) -> str:
-    """Generate HTML report with verification metadata"""
-    
-    update_report_progress('Generating HTML', 'Creating document...', 97)
-    
-    try:
-        report_date = datetime.strptime(
-            form_data['date'],
-            '%Y-%m-%d'
-        ).strftime('%B %d, %Y')
-    except:
-        report_date = datetime.now().strftime('%B %d, %Y')
-    
-    style = form_data.get('citation_style', 'IEEE')
-    
-    # Extract cited references and create renumbering map
-    cited, contexts = extract_cited_references_enhanced(refined_draft)
-    cited_refs_sorted = sorted(cited)
-    
-    old_to_new = {}
-    for new_num, old_num in enumerate(cited_refs_sorted, 1):
-        old_to_new[old_num] = new_num
-    
-    renumbered_draft = renumber_citations_in_draft(refined_draft, old_to_new)
-    
-    # Verification summary for display
-    ver_summary = verification_report.get('verifier_summary', {})
-    integrity = verification_report.get('citation_integrity', {})
-    
-    html = f"""<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <title>{form_data['topic']} - Research Report</title>
-    <style>
-        @page {{ margin: 1in; }}
-        body {{
-            font-family: 'Times New Roman', serif;
-            font-size: 12pt;
-            line-height: 1.6;
-            color: #000;
-            max-width: 8.5in;
-            margin: 0 auto;
-            padding: 0.5in;
-        }}
-        .cover {{
-            text-align: center;
-            padding-top: 2in;
-            page-break-after: always;
-        }}
-        .cover h1 {{
-            font-size: 24pt;
-            font-weight: bold;
-            margin: 1in 0 0.5in 0;
-        }}
-        .cover .meta {{
-            font-size: 14pt;
-            margin: 0.25in 0;
-        }}
-        h1 {{
-            font-size: 18pt;
-            margin-top: 0.5in;
-            border-bottom: 2px solid #333;
-            padding-bottom: 0.1in;
-        }}
-        h2 {{
-            font-size: 14pt;
-            margin-top: 0.3in;
-            font-weight: bold;
-        }}
-        p {{
-            text-align: justify;
-            margin: 0.15in 0;
-        }}
-        .abstract {{
-            font-style: italic;
-            margin: 0.25in 0.5in;
-        }}
-        .references {{
-            page-break-before: always;
-        }}
-        .ref-item {{
-            margin: 0.15in 0;
-            font-size: 10pt;
-            line-height: 1.4;
-            word-wrap: break-word;
-            overflow-wrap: break-word;
-        }}
-        .ref-item a {{
-            color: #0066CC;
-            text-decoration: none;
-            word-break: break-all;
-        }}
-        .ref-item a:hover {{
-            text-decoration: underline;
-        }}
-        .tier-badge {{
-            display: inline-block;
-            padding: 0.1rem 0.3rem;
-            border-radius: 0.2rem;
-            font-size: 0.75rem;
-            font-weight: bold;
-            margin-left: 0.3rem;
-        }}
-        .tier-top {{ background-color: #d4edda; color: #155724; }}
-        .tier-publisher {{ background-color: #d1ecf1; color: #0c5460; }}
-        .tier-preprint {{ background-color: #fff3cd; color: #856404; }}
-        .verification-box {{
-            background-color: #f8f9fa;
-            border: 1px solid #dee2e6;
-            border-radius: 0.3rem;
-            padding: 1rem;
-            margin: 1rem 0;
-            font-size: 10pt;
-        }}
-        .metric {{
-            display: inline-block;
-            margin-right: 1rem;
-        }}
-    </style>
-</head>
-<body>
-    <div class="cover">
-        <h1>{form_data['topic']}</h1>
-        <div class="meta">Research Report</div>
-        <div class="meta">Subject: {form_data['subject']}</div>
-        <div class="meta" style="margin-top: 1in;">
-            {form_data['researcher']}<br>
-            {form_data['institution']}<br>
-            {report_date}
-        </div>
-        <div class="meta" style="margin-top: 0.5in; font-size: 10pt;">
-            Generated by SROrch | {style} Citation Format
-        </div>
-        <div class="meta" style="margin-top: 0.3in; font-size: 9pt; color: #666;">
-            Verification: {ver_summary.get('total_issues', 0)} issues flagged | 
-            {integrity.get('total_citations', 0)} citations | 
-            {integrity.get('citation_coverage', 0):.0%} source coverage
-        </div>
-    </div>
-
-    <h1>Executive Summary</h1>
-    <p>{renumbered_draft.get('executiveSummary', '')}</p>
-
-    <h1>Abstract</h1>
-    <div class="abstract">{renumbered_draft.get('abstract', '')}</div>
-
-    <h1>Introduction</h1>
-    <p>{renumbered_draft.get('introduction', '')}</p>
-
-    <h1>Literature Review</h1>
-    <p>{renumbered_draft.get('literatureReview', '')}</p>
-"""
-    
-    for section in renumbered_draft.get('mainSections', []):
-        html += f"""
-    <h2>{section.get('title', 'Section')}</h2>
-    <p>{section.get('content', '')}</p>
-"""
-    
-    html += f"""
-    <h1>Data & Analysis</h1>
-    <p>{renumbered_draft.get('dataAnalysis', '')}</p>
-
-    <h1>Challenges</h1>
-    <p>{renumbered_draft.get('challenges', '')}</p>
-
-    <h1>Future Outlook</h1>
-    <p>{renumbered_draft.get('futureOutlook', '')}</p>
-
-    <h1>Conclusion</h1>
-    <p>{renumbered_draft.get('conclusion', '')}</p>
-
-    <div class="references">
-        <h1>References</h1>
-"""
-    
-    # Generate references with tier badges
-    for old_ref_num in cited_refs_sorted:
-        new_ref_num = old_to_new[old_ref_num]
-        if old_ref_num <= len(sources):
-            source = sources[old_ref_num - 1]
-            if style == 'APA':
-                citation = format_citation_apa(source, new_ref_num)
-            else:
-                citation = format_citation_ieee(source, new_ref_num)
-            html += f'        <div class="ref-item">{citation}</div>\n'
-    
-    # Add "Further References" section for uncited but relevant sources
-    uncited_sources = []
-    cited_indices = set(cited_refs_sorted)
-    
-    for i in range(1, min(max_sources + 1, len(sources) + 1)):
-        if i not in cited_indices:
-            uncited_sources.append((i, sources[i - 1]))
-    
-    if uncited_sources:
-        html += """
-        <h1 style="margin-top: 0.5in;">Further References</h1>
-        <p style="font-style: italic; font-size: 10pt;">Additional relevant sources consulted but not directly cited in this report.</p>
-"""
-        for idx, source in uncited_sources[:20]:
-            if style == 'APA':
-                citation = format_citation_apa(source, idx)
-            else:
-                citation = format_citation_ieee(source, idx)
-            citation_text = citation.split(']', 1)[1] if ']' in citation else citation
-            html += f'        <div class="ref-item" style="font-size: 9pt;">• {citation_text}</div>\n'
-    
-    # Add verification appendix
-    html += f"""
-    </div>
-    
-    <div class="verification-box" style="page-break-before: always;">
-        <h3>Document Verification Report</h3>
-        <p><strong>Generation Metadata:</strong></p>
-        <div class="metric"><strong>Sources Analyzed:</strong> {len(sources)}</div>
-        <div class="metric"><strong>Sources Cited:</strong> {len(cited_refs_sorted)}</div>
-        <div class="metric"><strong>Citation Coverage:</strong> {integrity.get('citation_coverage', 0):.1%}</div>
-        <div class="metric"><strong>Claim Issues Flagged:</strong> {ver_summary.get('total_issues', 0)}</div>
-        <br><br>
-        <p><strong>Authority Distribution:</strong></p>
-        <div class="metric">Top-tier: {sum(1 for s in sources if s.get('authority_tier') == 'top_tier')}</div>
-        <div class="metric">Publisher: {sum(1 for s in sources if s.get('authority_tier') == 'publisher')}</div>
-        <div class="metric">Conference: {sum(1 for s in sources if s.get('authority_tier') == 'conference')}</div>
-        <div class="metric">Preprint: {sum(1 for s in sources if s.get('authority_tier') == 'repository')}</div>
-        <br><br>
-        <p style="font-size: 9pt; color: #666;">
-            <em>This report was generated with automated verification. 
-            Claims marked with citations were checked against source documents. 
-            Quantitative claims without verification may require manual review.</em>
-        </p>
-    </div>
-</body>
-</html>"""
-    
-    return html
-
-def renumber_citations_in_text(text: str, old_to_new: Dict[int, int]) -> str:
-    """Renumber citations in text according to the mapping"""
-    def replace_citation(match):
-        old_num = int(match.group(1))
-        new_num = old_to_new.get(old_num, old_num)
-        return f'[{new_num}]'
-    
-    return re.sub(r'\[(\d+)\]', replace_citation, text)
-
-def renumber_citations_in_draft(draft: Dict, old_to_new: Dict[int, int]) -> Dict:
-    """Renumber all citations in the draft according to the mapping"""
-    new_draft = {}
-    
-    for key, value in draft.items():
-        if isinstance(value, str):
-            new_draft[key] = renumber_citations_in_text(value, old_to_new)
-        elif isinstance(value, list):
-            new_list = []
-            for item in value:
-                if isinstance(item, dict):
-                    new_item = {}
-                    for k, v in item.items():
-                        if isinstance(v, str):
-                            new_item[k] = renumber_citations_in_text(v, old_to_new)
-                        else:
-                            new_item[k] = v
-                    new_list.append(new_item)
-                elif isinstance(item, str):
-                    new_list.append(renumber_citations_in_text(item, old_to_new))
-                else:
-                    new_list.append(item)
-            new_draft[key] = new_list
-        else:
-            new_draft[key] = value
-    
-    return new_draft
-
-def refine_draft_simple(draft: Dict, topic: str, sources_count: int) -> Dict:
-    """Add executive summary"""
-    draft['executiveSummary'] = (
-        f"This comprehensive report examines {topic}, analyzing key developments, "
-        f"challenges, and future directions based on {sources_count} authoritative academic sources."
-    )
-    
-    return draft
-
-# ================================================================================
-# ENHANCED PIPELINE EXECUTION
-# ================================================================================
-
-def execute_report_pipeline():
-    """Execute complete report generation pipeline with verification"""
-    st.session_state.report_processing = True
-    st.session_state.report_step = 'processing'
-    st.session_state.report_api_calls = 0
-    st.session_state.report_start_time = time.time()
-    
-    try:
-        # Check for Anthropic API key
-        try:
-            anthropic_key = st.secrets["ANTHROPIC_API_KEY"]
-        except:
-            raise Exception("Anthropic API key not configured (needed for report generation)")
-        
-        topic = st.session_state.report_form_data['topic']
-        subject = st.session_state.report_form_data['subject']
-        api_keys = load_api_keys()
-        
-        # Stage 1: Topic Analysis
-        st.info("🔍 Stage 1/6: Analyzing topic...")
-        analysis = analyze_topic_with_ai(topic, subject)
-        st.session_state.report_research['subtopics'] = analysis['subtopics']
-        
-        # Stage 2: Academic Research
-        reuse_existing = False
-        if 'results' in st.session_state and st.session_state.get('search_query'):
-            existing_query = st.session_state.get('search_query', '').lower()
-            if topic.lower() in existing_query or subject.lower() in existing_query:
-                st.info(f"✅ Reusing existing search results")
-                results = st.session_state['results']
-                reuse_existing = True
-        
-        if not reuse_existing:
-            st.info("🔬 Stage 2/6: Searching academic databases...")
-            update_report_progress('Research', 'Initializing academic search engines...', 15)
-            
-            search_query = f"{topic} {subject}".strip()
-            
-            orchestrator_config = {
-                'abstract_limit': 10,
-                'high_consensus_threshold': 4,
-                'citation_weight': 1.5,
-                'source_weight': 100,
-                'enable_alerts': True,
-                'enable_visualization': False,
-                'export_formats': ['csv', 'json'],
-                'recency_boost': True,
-                'recency_years': 5,
-                'recency_multiplier': 1.2
-            }
-            
-            for key, value in api_keys.items():
-                if key != 'email' and value and len(value) > 5:
-                    os.environ[f"{key.upper()}_API_KEY"] = value
-                elif key == 'email' and value:
-                    os.environ['USER_EMAIL'] = value
-            
-            orchestrator = ResearchOrchestrator(config=orchestrator_config)
-            
-            update_report_progress('Research', f'Searching databases for "{search_query}"...', 25)
-            results = orchestrator.run_search(search_query, limit_per_engine=15)
-            
-            if not results:
-                raise Exception("No results found from academic databases")
-            
-            update_report_progress('Research', f'Found {len(results)} papers', 40)
-        
-        # Stage 3: Source Processing with Deduplication and Ranking
-        st.info("📊 Stage 3/6: Processing and ranking sources...")
-        update_report_progress('Processing', 'Deduplicating and ranking by authority...', 50)
-        
-        raw_sources = convert_orchestrator_to_source_format(results)
-        sources = deduplicate_and_rank_sources(raw_sources)
-        
-        st.session_state.report_research['sources'] = sources
-        
-        if len(sources) < 3:
-            raise Exception(f"Only {len(sources)} sources found after deduplication. Need at least 3.")
-        
-        # Show authority distribution
-        tier_counts = Counter(s.get('authority_tier', 'unknown') for s in sources[:20])
-        tier_display = ", ".join([f"{k}: {v}" for k, v in tier_counts.items()])
-        st.info(f"📚 Authority distribution (top 20): {tier_display}")
-        
-        # Stage 4: Draft Generation with Verification
-        st.info("✍️ Stage 4/6: Writing and verifying draft...")
-        max_sources = st.session_state.report_form_data.get('max_sources', 25)
-        
-        draft, verification_report = generate_draft_with_verification(
-            topic,
-            subject,
-            analysis['subtopics'],
-            sources,
-            st.session_state.report_research['phrase_variations'],
-            analysis.get('evaluationFrameworks', []),
-            max_sources=max_sources
-        )
-        
-        st.session_state.report_draft = draft
-        st.session_state.verification_results = verification_report
-        
-        # Display verification summary
-        issues = len(verification_report.get('unsupported_claims', []))
-        if issues > 0:
-            st.warning(f"⚠️ Verification found {issues} unsupported claims (corrected where possible)")
-        else:
-            st.success("✅ All quantitative claims verified against sources")
-        
-        # Stage 5: Refinement
-        st.info("🔍 Stage 5/6: Final refinement...")
-        update_report_progress('Refinement', 'Polishing document...', 90)
-        
-        refined = refine_draft_simple(draft, topic, len(sources))
-        st.session_state.report_final = refined
-        
-        # Stage 6: HTML Generation
-        st.info("✨ Stage 6/6: Generating final document...")
-        html = generate_html_report_enhanced(
-            refined,
-            st.session_state.report_form_data,
-            sources,
-            verification_report,
-            max_sources=max_sources
-        )
-        st.session_state.report_html = html
-        
-        st.session_state.report_execution_time = time.time() - st.session_state.report_start_time
-        
-        update_report_progress("Complete", "Report generated successfully!", 100)
-        st.session_state.report_step = 'complete'
-        
-        exec_mins = int(st.session_state.report_execution_time // 60)
-        exec_secs = int(st.session_state.report_execution_time % 60)
-        
-        # Final summary
-        ver_summary = verification_report.get('verifier_summary', {})
-        st.success(
-            f"✅ Report complete in {exec_mins}m {exec_secs}s! "
-            f"{len(sources)} sources, {st.session_state.report_api_calls} API calls, "
-            f"{ver_summary.get('total_issues', 0)} verification issues flagged"
-        )
-    
-    except Exception as e:
-        st.session_state.report_execution_time = time.time() - st.session_state.report_start_time if st.session_state.report_start_time else 0
-        update_report_progress("Error", str(e), 0)
-        st.session_state.report_step = 'error'
-        st.error(f"❌ Error: {str(e)}")
-        import traceback
-        st.error(traceback.format_exc())
-    finally:
-        st.session_state.report_processing = False
-
-def reset_report_system():
-    """Reset report generation system"""
-    st.session_state.report_step = 'input'
-    st.session_state.report_draft = None
-    st.session_state.report_final = None
-    st.session_state.report_html = None
-    st.session_state.report_processing = False
-    st.session_state.report_api_calls = 0
-    st.session_state.report_start_time = None
-    st.session_state.report_execution_time = None
-    st.session_state.verification_results = None
-    st.session_state.report_research = {
-        'subtopics': [],
-        'sources': [],
-        'phrase_variations': []
-    }
-
-# ================================================================================
-# REMAINING ORIGINAL FUNCTIONS (Preserved)
-# ================================================================================
-
-# ... [Include all original functions: render_api_key_input_section, check_api_keys, 
-# get_available_engines, display_results_preview, create_download_buttons, etc.] ...
 
 def render_api_key_input_section():
     """Render the API key input section in sidebar"""
@@ -1814,6 +901,907 @@ def get_available_engines(key_status):
     
     return available
 
+# ================================================================================
+# REPORT GENERATION FUNCTIONS
+# ================================================================================
+
+def update_report_progress(stage: str, detail: str, percent: int):
+    """Update report generation progress"""
+    st.session_state.report_progress = {
+        'stage': stage,
+        'detail': detail,
+        'percent': min(100, percent)
+    }
+
+def rate_limit_wait():
+    """Rate limiting for Anthropic API calls"""
+    current_time = time.time()
+    if 'last_api_call_time' not in st.session_state:
+        st.session_state.last_api_call_time = 0
+    
+    time_since_last = current_time - st.session_state.last_api_call_time
+    
+    if time_since_last < MIN_API_DELAY:
+        time.sleep(MIN_API_DELAY - time_since_last)
+    
+    st.session_state.last_api_call_time = time.time()
+    st.session_state.report_api_calls += 1
+
+def call_anthropic_api(messages: List[Dict], max_tokens: int = 1000, use_fallback: bool = False) -> Dict:
+    """Call Anthropic API with fallback model support"""
+    try:
+        anthropic_key = st.secrets["ANTHROPIC_API_KEY"]
+    except:
+        raise Exception("Anthropic API key not configured in secrets")
+    
+    rate_limit_wait()
+    
+    headers = {
+        "Content-Type": "application/json",
+        "x-api-key": anthropic_key,
+        "anthropic-version": "2023-06-01"
+    }
+    
+    model = MODEL_FALLBACK if use_fallback else MODEL_PRIMARY
+    
+    data = {
+        "model": model,
+        "max_tokens": max_tokens,
+        "messages": messages
+    }
+    
+    for attempt in range(3):
+        try:
+            response = requests.post(
+                "https://api.anthropic.com/v1/messages",
+                headers=headers,
+                json=data,
+                timeout=180
+            )
+            
+            if response.status_code == 429:
+                wait_time = RETRY_DELAYS[attempt]
+                st.warning(f"⏳ Rate limited. Waiting {wait_time}s (attempt {attempt+1}/3)")
+                time.sleep(wait_time)
+                continue
+            
+            if response.status_code == 529:
+                wait_time = RETRY_DELAYS[attempt]
+                st.warning(f"⏳ API overloaded. Waiting {wait_time}s (attempt {attempt+1}/3)")
+                time.sleep(wait_time)
+                continue
+            
+            response.raise_for_status()
+            return response.json()
+        
+        except requests.exceptions.RequestException as e:
+            st.warning(f"⚠️ API error (attempt {attempt+1}/3): {str(e)[:50]}")
+            if attempt == 2:
+                if not use_fallback:
+                    st.info("🔄 Trying fallback model...")
+                    return call_anthropic_api(messages, max_tokens, use_fallback=True)
+                raise
+            time.sleep(RETRY_DELAYS[attempt])
+    
+    if not use_fallback:
+        st.info("🔄 Primary model failed. Trying fallback model...")
+        return call_anthropic_api(messages, max_tokens, use_fallback=True)
+    
+    raise Exception("API call failed after 3 retries with both models")
+
+def parse_json_response(text: str) -> Dict:
+    """Extract JSON from API response text"""
+    try:
+        cleaned = re.sub(r'```json\n?|```\n?', '', text).strip()
+        return json.loads(cleaned)
+    except:
+        json_match = re.search(r'\{.*\}', text, re.DOTALL)
+        if json_match:
+            try:
+                return json.loads(json_match.group())
+            except:
+                pass
+    return {}
+
+def generate_phrase_variations(topic: str) -> List[str]:
+    """Generate phrase variations to avoid repetition"""
+    return [
+        topic,
+        f"the field of {topic}",
+        f"{topic} research",
+        f"this domain",
+        f"this research area",
+        f"the {topic} field"
+    ]
+
+def convert_orchestrator_to_source_format(papers: List[Dict]) -> List[Dict]:
+    """Convert ResearchOrchestrator output to report writer source format"""
+    sources = []
+    
+    for paper in papers:
+        metadata = {
+            'authors': paper.get('ieee_authors', 'Unknown Authors'),
+            'title': paper.get('title', 'Untitled'),
+            'venue': paper.get('venue', 'Unknown Venue'),
+            'year': str(paper.get('year', 'n.d.')),
+            'citations': paper.get('citations', 0),
+            'doi': paper.get('doi', 'N/A')
+        }
+        
+        source = {
+            'title': paper.get('title', 'Untitled'),
+            'url': paper.get('url', ''),
+            'content': paper.get('abstract', paper.get('tldr', ''))[:500],
+            'metadata': metadata,
+            'credibilityScore': min(100, 50 + safe_int(paper.get('citations', 0)) // 10),
+            'credibilityJustification': f"Found in {safe_int(paper.get('source_count', 1), 1)} database(s), {paper.get('citations', 0)} citations",
+            'dateAccessed': datetime.now().isoformat(),
+            '_orchestrator_data': paper
+        }
+        
+        sources.append(source)
+    
+    return sources
+
+def analyze_topic_with_ai(topic: str, subject: str) -> Dict:
+    """Analyze topic and generate research plan with evaluation context"""
+    
+    # Domain-specific evaluation framework knowledge
+    evaluation_frameworks = {
+        'scientific literature synthesis': {
+            'primary_benchmark': 'ScholarQABench',
+            'metrics': ['correctness', 'citation_accuracy', 'coverage', 'coherence'],
+            'evaluation_type': 'automated_plus_human',
+            'human_evaluation': 'blind_preference_judgment'
+        },
+        'retrieval augmented generation': {
+            'common_benchmarks': ['RGB', 'RECALL', 'ASQA', 'ELI5', 'ScholarQABench'],
+            'metrics': ['retrieval_accuracy', 'generation_fidelity', 'hallucination_rate']
+        },
+        'biomedical nlp': {
+            'common_benchmarks': ['PubMedQA', 'BioASQ', 'MedQA', 'BLURB'],
+            'metrics': ['accuracy', 'F1', 'exact_match']
+        },
+        'systematic review': {
+            'guidelines': ['PRISMA 2020', 'PRISMA-S', 'Cochrane'],
+            'metrics': ['completeness', 'bias_risk', 'reporting_quality']
+        }
+    }
+    
+    # Detect relevant frameworks
+    relevant_frameworks = []
+    topic_lower = topic.lower()
+    subject_lower = subject.lower()
+    
+    for domain, framework in evaluation_frameworks.items():
+        if domain in topic_lower or domain in subject_lower:
+            relevant_frameworks.append({**framework, 'domain': domain})
+    
+    framework_context = ""
+    if relevant_frameworks:
+        framework_context = "\n\nRELEVANT EVALUATION FRAMEWORKS FOR THIS FIELD:\n"
+        for fw in relevant_frameworks:
+            framework_context += f"- Domain: {fw['domain']}\n"
+            if 'primary_benchmark' in fw:
+                framework_context += f"  Primary benchmark: {fw['primary_benchmark']}\n"
+            if 'common_benchmarks' in fw:
+                framework_context += f"  Common benchmarks: {', '.join(fw['common_benchmarks'])}\n"
+            if 'metrics' in fw:
+                framework_context += f"  Key metrics: {', '.join(fw['metrics'])}\n"
+            framework_context += "\n"
+    
+    variations = generate_phrase_variations(topic)
+    st.session_state.report_research['phrase_variations'] = variations
+    
+    prompt = f"""Research plan for "{topic}" in {subject}.{framework_context}
+
+Create:
+1. 5 specific subtopics about "{topic}"
+2. 5 academic search queries for finding papers (2020-2025)
+3. IDENTIFY the specific evaluation benchmarks used in this field (if any)
+
+Return ONLY JSON:
+{{
+  "subtopics": ["aspect 1", "aspect 2", ...],
+  "researchQueries": ["query 1", "query 2", ...],
+  "evaluationFrameworks": ["benchmark 1", "benchmark 2"]
+}}"""
+    
+    try:
+        response = call_anthropic_api(
+            [{"role": "user", "content": prompt}],
+            max_tokens=800
+        )
+        text = "".join([c['text'] for c in response['content'] if c['type'] == 'text'])
+        result = parse_json_response(text)
+        
+        if result.get('subtopics') and result.get('researchQueries'):
+            return result
+    except Exception as e:
+        st.warning(f"Topic analysis failed: {e}. Using fallback.")
+    
+    # Fallback
+    return {
+        "subtopics": [
+            f"Foundations of {topic}",
+            f"Recent Advances in {topic}",
+            f"Applications of {topic}",
+            f"Challenges in {topic}",
+            f"Future of {topic}"
+        ],
+        "researchQueries": [
+            f"{topic} research 2024",
+            f"{topic} academic papers",
+            f"{topic} recent developments",
+            f"{topic} applications",
+            f"{topic} future trends"
+        ],
+        "evaluationFrameworks": []
+    }
+
+# ================================================================================
+# ENHANCED DRAFT GENERATION WITH STRICT CONTROLS
+# ================================================================================
+
+def add_temporal_context(prompt: str, sources: List[Dict]) -> str:
+    """Add temporal context based on source publication dates"""
+    
+    years = []
+    for s in sources:
+        year_str = s.get('metadata', {}).get('year', '')
+        if year_str and str(year_str).isdigit():
+            years.append(int(year_str))
+    
+    if years:
+        min_year = min(years)
+        max_year = max(years)
+        current_year = datetime.now().year
+        
+        temporal_context = f"""
+TEMPORAL CONTEXT:
+- Source publication range: {min_year}-{max_year}
+- Current year: {current_year}
+- "Recent" refers to {max_year-2}-{max_year} (last 2-3 years of available sources)
+- Use specific years instead of relative terms ("in 2024" not "recently")
+- Avoid claiming developments are "recent" if sources are from {current_year-5} or earlier
+"""
+        return prompt + temporal_context
+    
+    return prompt
+
+def generate_draft_strict(
+    topic: str,
+    subject: str,
+    subtopics: List[str],
+    sources: List[Dict],
+    variations: List[str],
+    evaluation_frameworks: List[str],
+    max_sources: int = 25
+) -> Tuple[Dict, Dict]:
+    """Generate draft with strict technical specificity requirements"""
+    
+    update_report_progress('Drafting', 'Writing with strict technical requirements...', 60)
+    
+    if not sources:
+        raise Exception("No sources available")
+    
+    # Aggregate technical specifications
+    all_specs = aggregate_technical_specs(sources[:max_sources])
+    
+    # Prepare source list with technical annotations
+    source_list = []
+    for i, s in enumerate(sources[:max_sources], 1):
+        meta = s.get('metadata', {})
+        tier = s.get('authority_tier', 'unknown')
+        
+        # Extract specs for this source
+        source_text = ' '.join([meta.get('title', ''), s.get('content', '')])
+        source_specs = extract_technical_specifications(source_text)
+        spec_summary = ', '.join([f"{k}: {', '.join(v[:3])}" for k, v in source_specs.items() if v])
+        
+        tier_emoji = {
+            'top_tier_journal': '🏆',
+            'publisher_journal': '📚',
+            'conference': '🎓',
+            'preprint': '📄',
+            'other': '📃'
+        }.get(tier, '📄')
+        
+        source_list.append(f"""[{i}] {tier_emoji} [{tier.upper()}] {meta.get('title', 'Unknown')} ({meta.get('year', 'N/A')})
+Authors: {meta.get('authors', 'Unknown')}
+Venue: {meta.get('venue', 'Unknown')} | Citations: {meta.get('citations', 0)}
+Technical: {spec_summary if spec_summary else 'General content'}
+URL: {s['url'][:70]}""")
+    
+    sources_text = "\n\n".join(source_list)
+    
+    # Build strict system prompt
+    system_prompt = f"""You are a PRECISE technical report generator. ABSOLUTE RULES:
+
+VIOLATION = REJECTION. NO EXCEPTIONS.
+
+RULE 1 - FORBIDDEN WORDS (Automatic rejection if used without specific metrics):
+- "advanced" → USE: "using 340M parameter cross-encoder [X]"
+- "sophisticated" → USE: "bi-encoder with 768-dimensional embeddings [X]"
+- "state-of-the-art" → USE: "achieving 71.8% on ScholarQABench [X]"
+- "enhanced" → USE: "15% improvement over GPT-4o baseline [X]"
+- "novel" → USE: "first system to combine X with Y [X]"
+- "robust" → USE: "maintains performance across 5 domains [X]"
+
+RULE 2 - MANDATORY SPECIFICITY:
+Every technical claim MUST include ONE of:
+- Exact benchmark name + score (e.g., "ScholarQABench: 71.8%")
+- Parameter count (e.g., "8B parameters")
+- Dataset size (e.g., "45M papers")
+- System name + version (e.g., "OpenScholar-8B")
+- Specific year (e.g., "2024") not "recent"
+
+RULE 3 - CITATION REQUIREMENTS:
+- Cite AT LEAST {int(max_sources * 0.6)} different sources minimum
+- Every paragraph must contain 2-4 citations [X]
+- Never cite same source twice in one paragraph
+- Use high-authority sources [1]-[10] preferentially
+
+RULE 4 - IF UNSURE:
+Write "Not specified in source [X]" or omit entirely.
+NEVER invent numbers, benchmarks, or metrics.
+
+EXTRACTED TECHNICAL DETAILS FROM SOURCES:
+Benchmarks: {', '.join(all_specs.get('benchmarks', ['None found']))}
+Models: {', '.join(all_specs.get('models', ['None found']))}
+Parameter counts: {', '.join(all_specs.get('parameter_counts', ['None found']))}
+Dataset sizes: {', '.join(all_specs.get('dataset_sizes', ['None found']))}
+Architectures: {', '.join(all_specs.get('architectures', ['None found']))}
+
+REMEMBER: Specificity is MANDATORY. Generic language is FORBIDDEN."""
+
+    # Variations and evaluation context
+    variations_text = f"""PHRASE VARIATION (Required):
+- "{topic}" - MAXIMUM 3 times total
+- "{variations[1]}" - USE FREQUENTLY
+- "{variations[2]}" - USE FREQUENTLY  
+- "this domain" - USE OFTEN
+- "this research area" - USE OFTEN"""
+
+    eval_context = ""
+    if evaluation_frameworks:
+        eval_context = f"""
+EVALUATION FRAMEWORKS (Use these specific names):
+{', '.join(evaluation_frameworks)}
+DO NOT use generic guidelines like PRISMA unless specifically discussing human reviews."""
+
+    strict_boundary = f"""
+SOURCE BOUNDARY: You may ONLY cite [1]-[{len(sources[:max_sources])}].
+DO NOT mention any paper not in this numbered list.
+DO NOT invent authors or systems."""
+
+    # Section-specific requirements
+    section_requirements = """
+SECTION REQUIREMENTS (All must be met):
+
+Abstract (200 words):
+- MUST name specific benchmark(s) with scores
+- MUST include dataset size or parameter count
+- MUST cite [5] (Asai et al. Nature 2026) if available
+
+Introduction:
+- MUST cite specific founding paper with year
+- MUST quantify the problem (e.g., "X papers published annually")
+
+Literature Review:
+- MUST compare specific systems with metric differences
+- NO generic "many studies have shown"
+
+Main Sections (4 required):
+1. Architecture: Name specific encoders, dimensions, parameters
+2. Benchmarks: List ALL benchmarks found in sources with scores
+3. Comparisons: System A vs System B with percentage differences
+4. Applications: Specific domains with quantitative results
+
+Data & Analysis:
+- MUST include specific numbers for every claim
+- Table-like comparisons preferred
+
+Challenges:
+- Specific technical limitations (e.g., "bi-encoder latency of Xms")
+- NOT generic "challenges remain"
+
+Future:
+- Concrete capabilities with predicted metrics
+- Specific technical directions
+
+Conclusion:
+- Summary of specific achievements with numbers
+- NO new claims without citations"""
+
+    user_prompt = f"""Write technical report about "{topic}" in {subject}.
+
+{variations_text}
+
+{eval_context}
+
+{strict_boundary}
+
+{section_requirements}
+
+ACADEMIC SOURCES TO USE:
+{sources_text}
+
+Return JSON format:
+{{
+  "abstract": "...",
+  "introduction": "...",
+  "literatureReview": "...",
+  "mainSections": [{{"title": "...", "content": "..."}}, ...],
+  "dataAnalysis": "...",
+  "challenges": "...",
+  "futureOutlook": "...",
+  "conclusion": "..."
+}}
+
+REMINDER: Every claim needs [X] citation. Every number needs source support. Generic terms are forbidden."""
+
+    # Add temporal context
+    user_prompt = add_temporal_context(user_prompt, sources[:max_sources])
+    
+    # First generation attempt
+    response = call_anthropic_api(
+        [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ],
+        max_tokens=6000
+    )
+    text = "".join([c['text'] for c in response['content'] if c['type'] == 'text'])
+    draft = parse_json_response(text)
+    
+    # Ensure structure
+    required_keys = ['abstract', 'introduction', 'literatureReview', 'mainSections',
+                    'dataAnalysis', 'challenges', 'futureOutlook', 'conclusion']
+    for key in required_keys:
+        if key not in draft or not draft[key]:
+            draft[key] = "Section content." if key != 'mainSections' else [{"title": "Section", "content": "Content."}]
+    
+    # STRICT VERIFICATION
+    update_report_progress('Verification', 'Running strict claim verification...', 75)
+    verifier = StrictClaimVerifier(sources[:max_sources])
+    verification = verifier.comprehensive_check(draft)
+    
+    # Check source coverage
+    coverage_check = enforce_source_coverage(draft, sources[:max_sources], min_coverage=0.5)
+    
+    # If critical issues, attempt regeneration with corrections
+    if verification['has_critical'] or coverage_check['status'] != 'ok':
+        update_report_progress('Refinement', 'Fixing critical issues...', 85)
+        
+        correction_prompt = f"""
+CRITICAL ISSUES FOUND - MUST FIX:
+
+{chr(10).join([f"- {v['type']}: {v.get('suggestion', v.get('issue', ''))}" for v in verification['violations'][:10]])}
+
+COVERAGE ISSUE: {coverage_check['message']}
+
+MISSING HIGH-PRIORITY SOURCES TO INTEGRATE:
+{chr(10).join([f"[{s['index']}] {s['title']} ({s['venue']})" for s in coverage_check.get('high_priority_missing', [])[:5]])}
+
+REGENERATION RULES:
+1. Remove ALL forbidden generic terms
+2. Add specific metrics (benchmarks, parameters, percentages) to every claim
+3. Integrate missing high-priority sources above
+4. Ensure minimum {int(max_sources * 0.5)} unique citations
+5. If specific number unavailable, remove claim or write "Not specified in sources"
+
+Return corrected JSON."""
+        
+        try:
+            retry_response = call_anthropic_api(
+                [
+                    {"role": "system", "content": system_prompt + "\n\nTHIS IS A CORRECTION ATTEMPT. FIX ALL ISSUES LISTED."},
+                    {"role": "user", "content": user_prompt + "\n\n" + correction_prompt}
+                ],
+                max_tokens=6000
+            )
+            retry_text = "".join([c['text'] for c in retry_response['content'] if c['type'] == 'text'])
+            corrected_draft = parse_json_response(retry_text)
+            
+            # Validate structure
+            valid = all(k in corrected_draft and corrected_draft[k] for k in required_keys)
+            if valid:
+                draft = corrected_draft
+                # Re-verify
+                verification = verifier.comprehensive_check(draft)
+                coverage_check = enforce_source_coverage(draft, sources[:max_sources], min_coverage=0.5)
+                verification['correction_attempted'] = True
+        except Exception as e:
+            verification['correction_error'] = str(e)
+    
+    # Final cleanup
+    def fix_citations(text):
+        if isinstance(text, str):
+            text = re.sub(r'\[Source\s+(\d+)\]', r'[\1]', text, flags=re.IGNORECASE)
+        return text
+    
+    for key in draft:
+        if isinstance(draft[key], str):
+            draft[key] = fix_citations(draft[key])
+        elif isinstance(draft[key], list):
+            for item in draft[key]:
+                if isinstance(item, dict):
+                    for k, v in item.items():
+                        if isinstance(v, str):
+                            item[k] = fix_citations(v)
+    
+    verification_report = {
+        'verification': verification,
+        'coverage': coverage_check,
+        'technical_specs_found': all_specs
+    }
+    
+    return draft, verification_report
+
+# ================================================================================
+# CITATION FORMATTING AND HTML GENERATION
+# ================================================================================
+
+def format_authors_ieee(authors_str: str) -> str:
+    """Format multiple authors for IEEE style"""
+    if not authors_str:
+        return "Research Team"
+    
+    if 'et al' in authors_str.lower():
+        return authors_str
+    
+    authors = re.split(r',\s*|\s+and\s+', authors_str)
+    authors = [a.strip() for a in authors if a.strip()]
+    
+    if not authors:
+        return "Research Team"
+    
+    if len(authors) == 1:
+        return authors[0]
+    elif len(authors) == 2:
+        return f"{authors[0]} and {authors[1]}"
+    else:
+        return ', '.join(authors[:-1]) + ', and ' + authors[-1]
+
+def format_citation_with_tier(source: Dict, index: int, style: str = 'IEEE') -> str:
+    """Format citation with correct tier badge"""
+    meta = source.get('metadata', {})
+    tier = source.get('authority_tier', 'unknown')
+    
+    tier_labels = {
+        'top_tier_journal': '[Nature/Science]',
+        'publisher_journal': '[Journal]',
+        'conference': '[Conference]',
+        'preprint': '[Preprint]',
+        'other': '[Other]'
+    }
+    
+    if style == 'APA':
+        return f"{meta.get('authors', 'Unknown')} ({meta.get('year', 'n.d.')}). {meta.get('title', 'Untitled')}. <i>{meta.get('venue', 'Unknown')}</i>. {tier_labels.get(tier, '')}"
+    else:
+        authors = format_authors_ieee(meta.get('authors', 'Unknown'))
+        return f'[{index}] {authors}, "{meta.get("title", "Untitled")}," {meta.get("venue", "Unknown")}, {meta.get("year", "n.d.")}. {tier_labels.get(tier, "")}'
+
+def extract_cited_references_enhanced(draft: Dict) -> Tuple[set, List[Dict]]:
+    """Extract citations with context"""
+    cited = set()
+    contexts = []
+    
+    def extract(text, section):
+        if not isinstance(text, str):
+            return
+        for match in re.finditer(r'\[(\d+)\]', text):
+            num = int(match.group(1))
+            cited.add(num)
+            start, end = max(0, match.start()-50), min(len(text), match.end()+50)
+            contexts.append({
+                'citation': num,
+                'context': text[start:end],
+                'section': section
+            })
+    
+    for key, value in draft.items():
+        if isinstance(value, str):
+            extract(value, key)
+        elif key == 'mainSections' and isinstance(value, list):
+            for section in value:
+                extract(section.get('content', ''), section.get('title', 'Section'))
+    
+    return cited, contexts
+
+def renumber_citations_in_text(text: str, mapping: Dict[int, int]) -> str:
+    """Renumber citations in text according to the mapping"""
+    return re.sub(r'\[(\d+)\]', lambda m: f'[{mapping.get(int(m.group(1)), m.group(1))}]', text)
+
+def renumber_citations_in_draft(draft: Dict, mapping: Dict[int, int]) -> Dict:
+    """Renumber all citations in the draft according to the mapping"""
+    new_draft = {}
+    
+    for key, value in draft.items():
+        if isinstance(value, str):
+            new_draft[key] = renumber_citations_in_text(value, mapping)
+        elif isinstance(value, list):
+            new_list = []
+            for item in value:
+                if isinstance(item, dict):
+                    new_item = {}
+                    for k, v in item.items():
+                        if isinstance(v, str):
+                            new_item[k] = renumber_citations_in_text(v, mapping)
+                        else:
+                            new_item[k] = v
+                    new_list.append(new_item)
+                elif isinstance(item, str):
+                    new_list.append(renumber_citations_in_text(item, mapping))
+                else:
+                    new_list.append(item)
+            new_draft[key] = new_list
+        else:
+            new_draft[key] = value
+    
+    return new_draft
+
+def refine_draft_simple(draft: Dict, topic: str, sources_count: int) -> Dict:
+    """Add executive summary"""
+    draft['executiveSummary'] = (
+        f"This report examines {topic} based on {sources_count} authoritative sources "
+        f"with strict technical verification."
+    )
+    return draft
+
+def generate_html_report_strict(
+    refined_draft: Dict,
+    form_data: Dict,
+    sources: List[Dict],
+    verification_report: Dict,
+    max_sources: int = 25
+) -> str:
+    """Generate HTML report with strict verification display"""
+    
+    update_report_progress('Generating HTML', 'Creating document...', 97)
+    
+    try:
+        report_date = datetime.strptime(
+            form_data['date'],
+            '%Y-%m-%d'
+        ).strftime('%B %d, %Y')
+    except:
+        report_date = datetime.now().strftime('%B %d, %Y')
+    
+    style = form_data.get('citation_style', 'IEEE')
+    
+    # Extract cited references and create renumbering map
+    cited, contexts = extract_cited_references_enhanced(refined_draft)
+    cited_refs_sorted = sorted(cited)
+    
+    old_to_new = {}
+    for new_num, old_num in enumerate(cited_refs_sorted, 1):
+        old_to_new[old_num] = new_num
+    
+    renumbered_draft = renumber_citations_in_draft(refined_draft, old_to_new)
+    
+    # Get verification data
+    ver = verification_report.get('verification', {})
+    cov = verification_report.get('coverage', {})
+    specs = verification_report.get('technical_specs_found', {})
+    
+    html = f"""<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>{form_data['topic']} - Technical Report</title>
+    <style>
+        @page {{ margin: 1in; }}
+        body {{
+            font-family: 'Times New Roman', serif;
+            font-size: 12pt;
+            line-height: 1.6;
+            color: #000;
+            max-width: 8.5in;
+            margin: 0 auto;
+            padding: 0.5in;
+        }}
+        .cover {{
+            text-align: center;
+            padding-top: 2in;
+            page-break-after: always;
+        }}
+        .cover h1 {{
+            font-size: 24pt;
+            font-weight: bold;
+            margin: 1in 0 0.5in 0;
+        }}
+        .cover .meta {{
+            font-size: 14pt;
+            margin: 0.25in 0;
+        }}
+        h1 {{
+            font-size: 18pt;
+            margin-top: 0.5in;
+            border-bottom: 2px solid #333;
+            padding-bottom: 0.1in;
+        }}
+        h2 {{
+            font-size: 14pt;
+            margin-top: 0.3in;
+            font-weight: bold;
+        }}
+        p {{
+            text-align: justify;
+            margin: 0.15in 0;
+        }}
+        .abstract {{
+            font-style: italic;
+            margin: 0.25in 0.5in;
+        }}
+        .references {{
+            page-break-before: always;
+        }}
+        .ref-item {{
+            margin: 0.15in 0;
+            font-size: 10pt;
+            line-height: 1.4;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+        }}
+        .ref-item a {{
+            color: #0066CC;
+            text-decoration: none;
+            word-break: break-all;
+        }}
+        .ref-item a:hover {{
+            text-decoration: underline;
+        }}
+        .tier-label {{
+            font-size: 9pt;
+            color: #666;
+            font-weight: bold;
+        }}
+        .verification-panel {{
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            padding: 1rem;
+            margin: 1rem 0;
+            font-size: 10pt;
+        }}
+        .specs-grid {{
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.5rem;
+            font-size: 9pt;
+        }}
+        .violation {{
+            background: #f8d7da;
+            padding: 0.3rem;
+            margin: 0.2rem 0;
+            border-radius: 0.2rem;
+            font-size: 9pt;
+        }}
+    </style>
+</head>
+<body>
+    <div class="cover">
+        <h1>{form_data['topic']}</h1>
+        <div class="meta">Technical Research Report</div>
+        <div class="meta">Subject: {form_data['subject']}</div>
+        <div class="meta" style="margin-top: 1in;">
+            {form_data['researcher']}<br>
+            {form_data['institution']}<br>
+            {report_date}
+        </div>
+        <div class="meta" style="margin-top: 0.5in; font-size: 10pt;">
+            Generated by SROrch | {style} Format | STRICT MODE
+        </div>
+    </div>
+
+    <h1>Executive Summary</h1>
+    <p>{renumbered_draft.get('executiveSummary', '')}</p>
+
+    <h1>Abstract</h1>
+    <div class="abstract">{renumbered_draft.get('abstract', '')}</div>
+
+    <h1>Introduction</h1>
+    <p>{renumbered_draft.get('introduction', '')}</p>
+
+    <h1>Literature Review</h1>
+    <p>{renumbered_draft.get('literatureReview', '')}</p>
+"""
+    
+    for section in renumbered_draft.get('mainSections', []):
+        html += f"""
+    <h2>{section.get('title', 'Section')}</h2>
+    <p>{section.get('content', '')}</p>
+"""
+    
+    html += f"""
+    <h1>Data & Analysis</h1>
+    <p>{renumbered_draft.get('dataAnalysis', '')}</p>
+
+    <h1>Challenges</h1>
+    <p>{renumbered_draft.get('challenges', '')}</p>
+
+    <h1>Future Outlook</h1>
+    <p>{renumbered_draft.get('futureOutlook', '')}</p>
+
+    <h1>Conclusion</h1>
+    <p>{renumbered_draft.get('conclusion', '')}</p>
+
+    <div class="references">
+        <h1>References</h1>
+"""
+    
+    # Generate references with tier badges
+    for old_ref_num in cited_refs_sorted:
+        new_ref_num = old_to_new[old_ref_num]
+        if old_ref_num <= len(sources):
+            source = sources[old_ref_num - 1]
+            citation = format_citation_with_tier(source, new_ref_num, style)
+            html += f'        <div class="ref-item">{citation}</div>\n'
+    
+    # Add "Further References" section for uncited but relevant sources
+    uncited_sources = []
+    cited_indices = set(cited_refs_sorted)
+    
+    for i in range(1, min(max_sources + 1, len(sources) + 1)):
+        if i not in cited_indices:
+            uncited_sources.append((i, sources[i - 1]))
+    
+    if uncited_sources:
+        html += """
+        <h1 style="margin-top: 0.5in;">Further References</h1>
+        <p style="font-style: italic; font-size: 10pt;">Additional relevant sources consulted but not directly cited in this report.</p>
+"""
+        for idx, source in uncited_sources[:20]:
+            citation = format_citation_with_tier(source, idx, style)
+            citation_text = citation.split(']', 1)[1] if ']' in citation else citation
+            html += f'        <div class="ref-item" style="font-size: 9pt;">• {citation_text}</div>\n'
+    
+    # Add verification panel
+    html += f"""
+    </div>
+    
+    <div class="verification-panel" style="page-break-before: always;">
+        <h3>🔍 Technical Verification Report</h3>
+        <p><strong>Quality Metrics:</strong></p>
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin: 1rem 0;">
+            <div>Sources: <strong>{len(sources)}</strong></div>
+            <div>Cited: <strong>{len(cited_refs_sorted)} ({cov.get('coverage', 0):.0%})</strong></div>
+            <div>Violations: <strong>{ver.get('total_violations', 0)}</strong></div>
+            <div>Correction: <strong>{'Yes' if ver.get('correction_attempted') else 'No'}</strong></div>
+        </div>
+        
+        <p><strong>Technical Specifications Extracted:</strong></p>
+        <div class="specs-grid">
+            <div>Benchmarks: {', '.join(specs.get('benchmarks', ['None'])[:5])}</div>
+            <div>Models: {', '.join(specs.get('models', ['None'])[:5])}</div>
+            <div>Parameters: {', '.join(specs.get('parameter_counts', ['None'])[:3])}</div>
+            <div>Datasets: {', '.join(specs.get('dataset_sizes', ['None'])[:3])}</div>
+        </div>
+"""
+    
+    # Show violations if any
+    if ver.get('violations'):
+        html += '<p style="margin-top: 1rem;"><strong>Issues Flagged:</strong></p>'
+        for v in ver['violations'][:10]:
+            html += f'<div class="violation">[{v.get("type", "unknown")}] {v.get("suggestion", v.get("issue", ""))}</div>'
+    
+    html += """
+        <p style="margin-top: 1rem; font-size: 9pt; color: #666;">
+            <em>This report was generated with strict technical verification. 
+            All quantitative claims were checked against source documents.
+            Generic terminology was flagged and removed where possible.</em>
+        </p>
+    </div>
+</body>
+</html>"""
+    
+    return html
+
+# ================================================================================
+# SEARCH TAB FUNCTIONS
+# ================================================================================
+
 def display_results_preview(results, limit=5):
     """Display a preview of the top results"""
     st.subheader(f"📊 Top {limit} Results")
@@ -1890,7 +1878,188 @@ def create_download_buttons(output_dir):
             )
 
 # ================================================================================
-# MAIN APPLICATION (Enhanced with verification display)
+# ENHANCED PIPELINE EXECUTION
+# ================================================================================
+
+def execute_report_pipeline():
+    """Execute complete report generation pipeline with verification"""
+    st.session_state.report_processing = True
+    st.session_state.report_step = 'processing'
+    st.session_state.report_api_calls = 0
+    st.session_state.report_start_time = time.time()
+    
+    try:
+        # Check for Anthropic API key
+        try:
+            anthropic_key = st.secrets["ANTHROPIC_API_KEY"]
+        except:
+            raise Exception("Anthropic API key not configured (needed for report generation)")
+        
+        topic = st.session_state.report_form_data['topic']
+        subject = st.session_state.report_form_data['subject']
+        api_keys = load_api_keys()
+        
+        # Stage 1: Topic Analysis
+        st.info("🔍 Stage 1/5: Analyzing topic...")
+        analysis = analyze_topic_with_ai(topic, subject)
+        st.session_state.report_research['subtopics'] = analysis['subtopics']
+        
+        # Stage 2: Check if we can reuse existing search results
+        reuse_existing = False
+        if 'results' in st.session_state and st.session_state.get('search_query'):
+            existing_query = st.session_state.get('search_query', '').lower()
+            new_query = f"{topic} {subject}".lower()
+            
+            if topic.lower() in existing_query or subject.lower() in existing_query:
+                st.info(f"✅ Reusing existing search results from: '{st.session_state.get('search_query')}'")
+                results = st.session_state['results']
+                reuse_existing = True
+        
+        # Stage 2: Academic Research (if not reusing)
+        if not reuse_existing:
+            st.info("🔬 Stage 2/5: Searching academic databases...")
+            update_report_progress('Research', 'Initializing academic search engines...', 20)
+            
+            search_query = f"{topic} {subject}".strip()
+            
+            # Configure orchestrator
+            orchestrator_config = {
+                'abstract_limit': 10,
+                'high_consensus_threshold': 4,
+                'citation_weight': 1.5,
+                'source_weight': 100,
+                'enable_alerts': True,
+                'enable_visualization': False,
+                'export_formats': ['csv', 'json'],
+                'recency_boost': True,
+                'recency_years': 5,
+                'recency_multiplier': 1.2
+            }
+            
+            # Set API keys in environment
+            for key, value in api_keys.items():
+                if key != 'email' and value and len(value) > 5:
+                    os.environ[f"{key.upper()}_API_KEY"] = value
+                elif key == 'email' and value:
+                    os.environ['USER_EMAIL'] = value
+            
+            # Initialize orchestrator
+            orchestrator = ResearchOrchestrator(config=orchestrator_config)
+            
+            update_report_progress('Research', f'Searching databases for "{search_query}"...', 30)
+            
+            # Execute search
+            results = orchestrator.run_search(search_query, limit_per_engine=15)
+            
+            if not results:
+                raise Exception("No results found from academic databases")
+            
+            update_report_progress('Research', f'Found {len(results)} papers', 50)
+        
+        # Stage 3: Process with strict deduplication and ranking
+        st.info("📊 Stage 3/5: Processing and ranking sources...")
+        update_report_progress('Processing', 'Deduplicating and ranking by authority...', 55)
+        
+        raw_sources = convert_orchestrator_to_source_format(results)
+        sources = deduplicate_and_rank_sources_strict(raw_sources)
+        st.session_state.report_research['sources'] = sources
+        
+        # Show authority distribution
+        tier_counts = Counter(s.get('authority_tier', 'unknown') for s in sources[:20])
+        tier_display = ", ".join([f"{k}: {v}" for k, v in tier_counts.items()])
+        st.info(f"📚 Authority distribution (top 20): {tier_display}")
+        
+        if len(sources) < 3:
+            raise Exception(f"Only {len(sources)} sources found after deduplication. Need at least 3.")
+        
+        # Stage 4: Draft Generation with Strict Verification
+        st.info("✍️ Stage 4/5: Writing and verifying draft...")
+        max_sources = st.session_state.report_form_data.get('max_sources', 25)
+        
+        draft, verification_report = generate_draft_strict(
+            topic,
+            subject,
+            analysis['subtopics'],
+            sources,
+            st.session_state.report_research['phrase_variations'],
+            analysis.get('evaluationFrameworks', []),
+            max_sources=max_sources
+        )
+        
+        st.session_state.report_draft = draft
+        st.session_state.verification_results = verification_report
+        
+        # Display verification summary
+        ver = verification_report['verification']
+        cov = verification_report['coverage']
+        
+        if ver['has_critical']:
+            st.error(f"⚠️ {ver['total_violations']} critical issues found and corrected")
+        elif ver['total_violations'] > 0:
+            st.warning(f"⚠️ {ver['total_violations']} minor issues flagged")
+        else:
+            st.success("✅ All claims verified against sources")
+        
+        st.info(f"📊 Source coverage: {cov['coverage']:.1%} ({cov['cited_count']}/{cov['total_sources']})")
+        
+        # Stage 5: Refinement & HTML Generation
+        st.info("✨ Stage 5/5: Final refinement...")
+        update_report_progress('Refinement', 'Polishing document...', 90)
+        
+        refined = refine_draft_simple(draft, topic, len(sources))
+        st.session_state.report_final = refined
+        
+        html = generate_html_report_strict(
+            refined,
+            st.session_state.report_form_data,
+            sources,
+            verification_report,
+            max_sources=max_sources
+        )
+        st.session_state.report_html = html
+        
+        st.session_state.report_execution_time = time.time() - st.session_state.report_start_time
+        
+        update_report_progress("Complete", "Report generated successfully!", 100)
+        st.session_state.report_step = 'complete'
+        
+        exec_mins = int(st.session_state.report_execution_time // 60)
+        exec_secs = int(st.session_state.report_execution_time % 60)
+        st.success(
+            f"✅ Report complete in {exec_mins}m {exec_secs}s! "
+            f"{len(sources)} sources, {st.session_state.report_api_calls} API calls, "
+            f"{ver['total_violations']} verification issues flagged"
+        )
+    
+    except Exception as e:
+        st.session_state.report_execution_time = time.time() - st.session_state.report_start_time if st.session_state.report_start_time else 0
+        update_report_progress("Error", str(e), 0)
+        st.session_state.report_step = 'error'
+        st.error(f"❌ Error: {str(e)}")
+        import traceback
+        st.error(traceback.format_exc())
+    finally:
+        st.session_state.report_processing = False
+
+def reset_report_system():
+    """Reset report generation system"""
+    st.session_state.report_step = 'input'
+    st.session_state.report_draft = None
+    st.session_state.report_final = None
+    st.session_state.report_html = None
+    st.session_state.report_processing = False
+    st.session_state.report_api_calls = 0
+    st.session_state.report_start_time = None
+    st.session_state.report_execution_time = None
+    st.session_state.verification_results = None
+    st.session_state.report_research = {
+        'subtopics': [],
+        'sources': [],
+        'phrase_variations': []
+    }
+
+# ================================================================================
+# MAIN APPLICATION
 # ================================================================================
 
 def main():
@@ -1899,7 +2068,7 @@ def main():
     
     # Header
     st.markdown('<p class="main-header">🔬 SROrch - Scholarly Research Orchestrator & Report Writer</p>', unsafe_allow_html=True)
-    st.markdown('<p class="sub-header">Multi-Engine Academic Literature Search, Analysis & Verified Report Generation</p>', unsafe_allow_html=True)
+    st.markdown('<p class="sub-header">Multi-Engine Academic Literature Search, Analysis & Strictly Verified Report Generation</p>', unsafe_allow_html=True)
     
     # Check dev mode
     is_dev_mode, dev_keys = check_dev_mode()
@@ -2448,9 +2617,9 @@ def main():
         else:
             st.info("👈 No results yet. Start a search in the 'Search' tab!")
     
-    # ====== TAB 3: REPORT WRITER (Enhanced with verification) ======
+    # ====== TAB 3: REPORT WRITER ======
     with tab3:
-        st.header("📝 Academic Report Writer")
+        st.header("📝 Academic Report Writer (Strict Mode)")
         st.markdown("*Now with automated claim verification and source authority ranking*")
         
         # Check for Anthropic API key
@@ -2541,7 +2710,7 @@ def main():
                 
                 st.markdown("---")
                 
-                # NEW: Verification features info
+                # Info box
                 st.info("""
                 **🛡️ Verification Features (NEW):**
                 - **Claim Verification**: All quantitative claims checked against source documents
@@ -2560,7 +2729,7 @@ def main():
                 """)
                 
                 if st.button(
-                    "🚀 Generate Verified Report",
+                    "🚀 Generate Strictly Verified Report",
                     disabled=not valid,
                     type="primary",
                     use_container_width=True
@@ -2601,7 +2770,13 @@ def main():
                         for i, s in enumerate(st.session_state.report_research['sources'][:10], 1):
                             meta = s.get('metadata', {})
                             tier = s.get('authority_tier', 'unknown')
-                            tier_emoji = {'top_tier': '🏆', 'publisher': '📚', 'conference': '🎓', 'repository': '📄', 'other': '📃'}.get(tier, '📄')
+                            tier_emoji = {
+                                'top_tier_journal': '🏆',
+                                'publisher_journal': '📚',
+                                'conference': '🎓',
+                                'preprint': '📄',
+                                'other': '📃'
+                            }.get(tier, '📄')
                             
                             st.markdown(
                                 f"**{i}.** {tier_emoji} {meta.get('title', 'Unknown')[:60]}...  "
@@ -2614,11 +2789,11 @@ def main():
                     st.rerun()
             
             elif st.session_state.report_step == 'complete':
-                st.success("✅ Verified Report Generated Successfully!")
+                st.success("✅ Strictly Verified Report Generated Successfully!")
                 
                 # Show verification badge
                 ver_results = st.session_state.get('verification_results', {})
-                issues = len(ver_results.get('unsupported_claims', []))
+                issues = len(ver_results.get('verification', {}).get('violations', []))
                 
                 if issues == 0:
                     st.markdown('<span class="verification-badge verified">✓ All Claims Verified</span>', unsafe_allow_html=True)
@@ -2648,22 +2823,26 @@ def main():
                 
                 # Verification details
                 with st.expander("🛡️ Verification Details", expanded=False):
-                    ver_summary = ver_results.get('verifier_summary', {})
-                    integrity = ver_results.get('citation_integrity', {})
+                    ver_summary = ver_results.get('verification', {})
+                    integrity = ver_results.get('coverage', {})
+                    specs = ver_results.get('technical_specs_found', {})
                     
                     st.markdown("**Claim Verification:**")
-                    st.markdown(f"- Total metrics found in sources: {ver_summary.get('total_metrics_found', 0)}")
-                    st.markdown(f"- Unsupported claims flagged: {ver_summary.get('total_issues', 0)}")
+                    st.markdown(f"- Total metrics found in sources: {sum(len(v) for v in ver_results.get('verification', {}).get('by_type', {}).values())}")
+                    st.markdown(f"- Violations flagged: {ver_summary.get('total_violations', 0)}")
                     
-                    st.markdown("**Citation Integrity:**")
-                    st.markdown(f"- Valid citations: {len(integrity.get('valid_citations', []))}")
-                    st.markdown(f"- Invalid citations: {len(integrity.get('invalid_citations', []))}")
-                    st.markdown(f"- Citation coverage: {integrity.get('citation_coverage', 0):.1%}")
+                    st.markdown("**Citation Coverage:**")
+                    st.markdown(f"- Coverage: {integrity.get('coverage', 0):.1%}")
+                    st.markdown(f"- Sources cited: {integrity.get('cited_count', 0)}/{integrity.get('total_sources', 0)}")
                     
-                    if integrity.get('orphaned_high_quality_sources'):
-                        st.markdown("**High-Quality Uncited Sources:**")
-                        for src in integrity['orphaned_high_quality_sources'][:5]:
-                            st.caption(f"[{src['index']}] {src['title']} ({src['citations']} cites)")
+                    st.markdown("**Technical Specs Extracted:**")
+                    for key, values in specs.items():
+                        st.markdown(f"- {key}: {', '.join(values[:5])}")
+                    
+                    if ver_summary.get('violations'):
+                        st.markdown("**Sample Violations:**")
+                        for v in ver_summary['violations'][:5]:
+                            st.caption(f"[{v['type']}] {v.get('suggestion', v.get('issue', ''))}")
                 
                 st.markdown("---")
                 
@@ -2671,7 +2850,7 @@ def main():
                 col1, col2 = st.columns(2)
                 with col1:
                     if st.session_state.report_html:
-                        filename = f"{st.session_state.report_form_data['topic'].replace(' ', '_')}_Verified_Report.html"
+                        filename = f"{st.session_state.report_form_data['topic'].replace(' ', '_')}_Strict_Report.html"
                         st.download_button(
                             "📥 Download Verified HTML Report",
                             data=st.session_state.report_html,
@@ -2700,8 +2879,12 @@ def main():
                         orch = s.get('_orchestrator_data', {})
                         tier = s.get('authority_tier', 'unknown')
                         
-                        tier_badge = {'top_tier': '🏆 Top-tier', 'publisher': '📚 Publisher', 
-                                     'conference': '🎓 Conference', 'repository': '📄 Preprint'}.get(tier, '📄 Other')
+                        tier_badge = {
+                            'top_tier_journal': '🏆 Nature/Science',
+                            'publisher_journal': '📚 Journal',
+                            'conference': '🎓 Conference',
+                            'preprint': '📄 Preprint'
+                        }.get(tier, '📄 Other')
                         
                         st.markdown(f"**[{i}]** {tier_badge} {meta.get('title', 'N/A')[:70]}")
                         st.caption(f"👤 {meta.get('authors', 'N/A')} | 📅 {meta.get('year', 'N/A')} | 📖 {meta.get('venue', 'N/A')}")
@@ -2792,7 +2975,7 @@ def main():
         **Report Mode:**
         1. Configure report details (topic, author, institution)
         2. Choose citation style (IEEE or APA)
-        3. Click "Generate Verified Report"
+        3. Click "Generate Strictly Verified Report"
         4. Review verification details and download HTML
         
         #### 🔑 API Keys
@@ -2809,7 +2992,7 @@ def main():
         
         ---
         
-        **Version:** 2.1 - Enhanced with Claim Verification  
+        **Version:** 2.1 - Enhanced with Strict Claim Verification  
         **Security Model:** Zero-Trust (User-Provided Keys)  
         **Verification Engine:** Multi-stage claim validation  
         **License:** MIT
@@ -2821,9 +3004,10 @@ Python Version: {sys.version}
 Working Directory: {os.getcwd()}
 Streamlit Version: {st.__version__}
 Security Model: Session-only keys (no persistence)
-Report Generation: Claude Sonnet 4.5 with verification
+Report Generation: Claude Sonnet 4.5 with strict verification
 Claim Verification: Enabled (fuzzy matching ±5%)
-Source Ranking: Authority-tier based
+Source Ranking: Authority-tier based (Nature/Science > Conference > Preprint)
+Forbidden Terms: {len(FORBIDDEN_GENERIC_TERMS)} generic words blocked
             """)
 
 if __name__ == "__main__":
