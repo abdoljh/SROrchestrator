@@ -178,7 +178,8 @@ def initialize_session_state():
             'researcher': '',
             'institution': '',
             'date': datetime.now().strftime('%Y-%m-%d'),
-            'citation_style': 'IEEE'
+            'citation_style': 'IEEE',
+            'max_sources': 25
         }
     
     if 'report_progress' not in st.session_state:
@@ -723,7 +724,8 @@ def generate_draft_optimized(
     subject: str,
     subtopics: List[str],
     sources: List[Dict],
-    variations: List[str]
+    variations: List[str],
+    max_sources: int = 25
 ) -> Dict:
     """Generate report draft using academic sources"""
     update_report_progress('Drafting', 'Writing report...', 70)
@@ -731,9 +733,9 @@ def generate_draft_optimized(
     if not sources:
         raise Exception("No sources available")
     
-    # Prepare source list for prompt
+    # Prepare source list for prompt (limited to max_sources)
     source_list = []
-    for i, s in enumerate(sources[:25], 1):
+    for i, s in enumerate(sources[:max_sources], 1):
         meta = s.get('metadata', {})
         source_list.append(f"""[{i}] {meta.get('title', 'Unknown')} ({meta.get('year', 'N/A')})
 Authors: {meta.get('authors', 'Unknown')}
@@ -845,9 +847,10 @@ def refine_draft_simple(draft: Dict, topic: str, sources_count: int) -> Dict:
 def generate_html_report_optimized(
     refined_draft: Dict,
     form_data: Dict,
-    sources: List[Dict]
+    sources: List[Dict],
+    max_sources: int = 25
 ) -> str:
-    """Generate HTML report"""
+    """Generate HTML report with cited and further references"""
     update_report_progress('Generating HTML', 'Creating document...', 97)
     
     try:
@@ -1010,6 +1013,30 @@ def generate_html_report_optimized(
                 citation = format_citation_ieee(source, i)
             html += f'        <div class="ref-item">{citation}</div>\n'
     
+    # Add "Further References" section for uncited but relevant sources
+    # Only include sources that were part of the writing process but not cited
+    uncited_sources = []
+    cited_indices = set(cited_refs_sorted)
+    
+    for i in range(1, min(max_sources + 1, len(sources) + 1)):
+        if i not in cited_indices:
+            uncited_sources.append((i, sources[i - 1]))
+    
+    if uncited_sources:
+        html += """
+        <h1 style="margin-top: 0.5in;">Further References</h1>
+        <p style="font-style: italic; font-size: 10pt;">Additional relevant sources consulted but not directly cited in this report.</p>
+"""
+        for idx, source in uncited_sources[:20]:  # Limit to 20 further refs
+            # Don't renumber - just list them
+            if style == 'APA':
+                citation = format_citation_apa(source, idx)
+            else:
+                citation = format_citation_ieee(source, idx)
+            # Remove numbering from citation since these are supplementary
+            citation_text = citation.split(']', 1)[1] if ']' in citation else citation
+            html += f'        <div class="ref-item" style="font-size: 9pt;">• {citation_text}</div>\n'
+    
     html += """
     </div>
 </body>
@@ -1102,12 +1129,14 @@ def execute_report_pipeline():
         
         # Stage 3: Draft Generation
         st.info("✍️ Stage 3/5: Writing report...")
+        max_sources = st.session_state.report_form_data.get('max_sources', 25)
         draft = generate_draft_optimized(
             topic,
             subject,
             analysis['subtopics'],
             sources,
-            st.session_state.report_research['phrase_variations']
+            st.session_state.report_research['phrase_variations'],
+            max_sources=max_sources
         )
         st.session_state.report_draft = draft
         
@@ -1123,7 +1152,8 @@ def execute_report_pipeline():
         html = generate_html_report_optimized(
             refined,
             st.session_state.report_form_data,
-            sources
+            sources,
+            max_sources=max_sources
         )
         st.session_state.report_html = html
         
@@ -1861,6 +1891,25 @@ def main():
                 with col4:
                     style = st.selectbox("Citation Style", ["IEEE", "APA"])
                 
+                # Source count control with cost warning
+                st.markdown("#### 📚 Source Configuration")
+                max_sources = st.slider(
+                    "Maximum sources to use for writing",
+                    min_value=10,
+                    max_value=100,
+                    value=st.session_state.report_form_data.get('max_sources', 25),
+                    step=5,
+                    help="Higher values = more comprehensive but slower and more expensive"
+                )
+                
+                # Cost/time warning based on source count
+                if max_sources <= 25:
+                    st.success(f"✅ Conservative mode ({max_sources} sources) - ~3-5 min, ~20-30 API calls")
+                elif max_sources <= 50:
+                    st.warning(f"⚠️ Balanced mode ({max_sources} sources) - ~5-8 min, ~40-50 API calls, higher cost")
+                else:
+                    st.error(f"🔴 Comprehensive mode ({max_sources} sources) - ~8-12 min, ~60-80 API calls, **significantly higher cost**")
+                
                 # Update form data
                 st.session_state.report_form_data.update({
                     'topic': topic,
@@ -1868,7 +1917,8 @@ def main():
                     'researcher': researcher,
                     'institution': institution,
                     'date': date.strftime('%Y-%m-%d'),
-                    'citation_style': style
+                    'citation_style': style,
+                    'max_sources': max_sources
                 })
                 
                 valid = all([topic, subject, researcher, institution])
