@@ -168,9 +168,10 @@ class StrictClaimVerifier:
                 'parameters': [],
                 'benchmarks': [],
                 'comparisons': [],
-                'years': []
+                'years': [],
+                'raw_numbers': []  # ✅ ADD THIS LINE
             }
-            
+
             # Percentages with context
             for match in re.finditer(r'(\d+(?:\.\d+)?)%\s*(?:accuracy|precision|recall|F1|correctness|improvement|increase|decrease)?', text, re.IGNORECASE):
                 source_metrics['percentages'].append({
@@ -185,6 +186,7 @@ class StrictClaimVerifier:
                     'unit': match.group(2),
                     'context': text[max(0, match.start()-30):min(len(text), match.end()+30)]
                 })
+                source_metrics['raw_numbers'].append(match.group(1))  # ✅ ADD THIS LINE
             
             # Parameter counts
             for match in re.finditer(r'(\d+(?:\.\d+)?)\s*(?:B|M|billion|million)\s*(?:parameters|params)', text, re.IGNORECASE):
@@ -204,6 +206,7 @@ class StrictClaimVerifier:
                     'verb': match.group(1),
                     'margin': match.group(2)
                 })
+                source_metrics['raw_numbers'].append(match.group(2))  # ✅ ADD THIS LINE
             
             if any(source_metrics.values()):
                 metrics[str(i)] = source_metrics
@@ -358,16 +361,20 @@ class StrictClaimVerifier:
         }
         
         for section_name, content in sections_to_check.items():
+            all_violations.extend(self.verify_exact_numbers(content, section_name))  # ✅ ADD THIS
             all_violations.extend(self.check_forbidden_language(content, section_name))
             all_violations.extend(self.verify_technical_specificity(content, section_name))
             all_violations.extend(self.verify_citation_support(content, section_name))
+
         
         for section in draft.get('mainSections', []):
             content = section.get('content', '')
             title = section.get('title', 'Section')
+            all_violations.extend(self.verify_exact_numbers(content, f"mainSection:{title}"))  # ✅ ADD THIS
             all_violations.extend(self.check_forbidden_language(content, f"mainSection:{title}"))
             all_violations.extend(self.verify_technical_specificity(content, f"mainSection:{title}"))
             all_violations.extend(self.verify_citation_support(content, f"mainSection:{title}"))
+
         
         self.violations = all_violations
         
@@ -378,6 +385,45 @@ class StrictClaimVerifier:
             'violations': all_violations,
             'has_critical': any(v['type'] in ['unsupported_number', 'invalid_citation'] for v in all_violations)
         }
+
+    def verify_exact_numbers(self, text: str, section: str) -> List[Dict]:
+        """Verify that all numbers in text appear exactly in cited sources"""
+        violations = []
+        
+        # Find all number + citation pairs
+        pattern = r'(\d+(?:\.\d+)?%?)[^[]{0,100}\[(\d+)\]'
+        
+        for match in re.finditer(pattern, text):
+            number = match.group(1).replace('%', '')
+            citation = match.group(2)
+            
+            if citation not in self.source_metrics:
+                violations.append({
+                    'type': 'invalid_citation',
+                    'number': number,
+                    'citation': citation,
+                    'section': section,
+                    'severity': 'CRITICAL',
+                    'issue': f'Source [{citation}] not found'
+                })
+                continue
+            
+            # Check if exact number exists in source
+            source_data = self.source_metrics[citation]
+            raw_numbers = source_data.get('raw_numbers', [])
+            
+            if number not in raw_numbers:
+                violations.append({
+                    'type': 'hallucinated_number',
+                    'number': number,
+                    'citation': citation,
+                    'section': section,
+                    'severity': 'CRITICAL',
+                    'issue': f'Number {number} NOT in source [{citation}]',
+                    'suggestion': f'Available numbers: {raw_numbers[:5]}'
+                })
+        
+        return violations
 
 # ================================================================================
 # FIXED SOURCE AUTHORITY CLASSIFICATION
@@ -421,8 +467,30 @@ def get_authority_tier_fixed(venue: str, url: str) -> str:
     return 'other'
 
 def deduplicate_and_rank_sources_strict(sources: List[Dict]) -> List[Dict]:
-    """Strict deduplication with corrected authority classification"""
+    """Enhanced deduplication with DOI + arXiv ID + title matching"""
+
+    def normalize_doi(doi: str) -> str:
+        """Normalize DOI for comparison"""
+        if not doi or doi.upper() in ('N/A', 'NA', 'UNKNOWN', 'NONE'):
+            return ''
+        doi = re.sub(r'^(doi:|https?://doi.org/|https?://dx.doi.org/)', '', doi.lower().strip())
+        doi = re.sub(r'\s+', '', doi)
+        return doi if len(doi) > 5 else ''
     
+    def extract_arxiv_id(url: str) -> str:
+        """Extract arXiv ID from URL"""
+        match = re.search(r'arxiv\.org/(?:abs|pdf)/(\d+\.\d+)', url.lower())
+        return match.group(1) if match else ''
+    
+    def normalize_title(title: str) -> str:
+        """Normalize title for comparison"""
+        if not title:
+            return ''
+        normalized = re.sub(r'[^\w\s]', '', title.lower())
+        normalized = re.sub(r'\s+', ' ', normalized).strip()
+        return normalized
+    
+
     TIER_ORDER = {
         'top_tier_journal': 0,
         'publisher_journal': 1,
@@ -432,27 +500,78 @@ def deduplicate_and_rank_sources_strict(sources: List[Dict]) -> List[Dict]:
     }
     
     seen = {}
+    doi_to_key = {}
+    arxiv_to_key = {}
+    title_to_key = {}
     
     for source in sources:
-        doi = str(source.get('metadata', {}).get('doi', '')).lower().strip()
-        title = re.sub(r'[^\w]', '', source.get('metadata', {}).get('title', '').lower())
+        metadata = source.get('metadata', {})
         
-        key = doi if doi and doi != 'n/a' and len(doi) > 5 else title
+        # Extract identifiers
+        doi = normalize_doi(metadata.get('doi', ''))
+        arxiv_id = extract_arxiv_id(source.get('url', ''))
+        title = normalize_title(metadata.get('title', ''))
         
-        venue = source.get('metadata', {}).get('venue', '')
+        # Get authority tier
+        venue = metadata.get('venue', '')
         url = source.get('url', '')
         tier = get_authority_tier_fixed(venue, url)
         source['authority_tier'] = tier
         
+        # Determine unique key with cross-linking
+        key = None
+        
+        # Check if DOI already seen
+        if doi:
+            if doi in doi_to_key:
+                key = doi_to_key[doi]
+            else:
+                key = f"doi:{doi}"
+                doi_to_key[doi] = key
+        
+        # Check if arXiv ID already seen and link to DOI
+        if not key and arxiv_id:
+            if arxiv_id in arxiv_to_key:
+                key = arxiv_to_key[arxiv_id]
+            else:
+                if doi:  # Link arXiv to DOI
+                    arxiv_to_key[arxiv_id] = doi_to_key[doi]
+                    key = doi_to_key[doi]
+                else:
+                    key = f"arxiv:{arxiv_id}"
+                    arxiv_to_key[arxiv_id] = key
+        
+        # Fallback to title matching
+        if not key and title and len(title) > 30:
+            if title in title_to_key:
+                key = title_to_key[title]
+            else:
+                # Link title to existing DOI/arXiv if available
+                if doi and doi in doi_to_key:
+                    title_to_key[title] = doi_to_key[doi]
+                    key = doi_to_key[doi]
+                elif arxiv_id and arxiv_id in arxiv_to_key:
+                    title_to_key[title] = arxiv_to_key[arxiv_id]
+                    key = arxiv_to_key[arxiv_id]
+                else:
+                    key = f"title:{title[:50]}"
+                    title_to_key[title] = key
+        
+        if not key:
+            continue
+        
+        # Merge or add
         if key in seen:
             existing = seen[key]
             existing['source_count'] = existing.get('source_count', 1) + 1
             
+            # Update to maximum citations
             existing_cites = safe_int(existing.get('metadata', {}).get('citations', 0))
-            new_cites = safe_int(source.get('metadata', {}).get('citations', 0))
+            new_cites = safe_int(metadata.get('citations', 0))
             if new_cites > existing_cites:
                 existing['metadata']['citations'] = new_cites
             
+            # Upgrade to better tier
             existing_tier_rank = TIER_ORDER.get(existing.get('authority_tier'), 5)
             new_tier_rank = TIER_ORDER.get(tier, 5)
             
@@ -460,6 +579,8 @@ def deduplicate_and_rank_sources_strict(sources: List[Dict]) -> List[Dict]:
                 existing['authority_tier'] = tier
                 existing['metadata']['venue'] = venue
                 existing['url'] = url
+                if doi and not normalize_doi(existing['metadata'].get('doi', '')):
+                    existing['metadata']['doi'] = metadata.get('doi', 'N/A')
         else:
             source['source_count'] = 1
             seen[key] = source
@@ -474,6 +595,7 @@ def deduplicate_and_rank_sources_strict(sources: List[Dict]) -> List[Dict]:
     )
     
     return ranked
+
 
 # ================================================================================
 # TECHNICAL SPECIFICATION EXTRACTION
@@ -927,8 +1049,21 @@ def rate_limit_wait():
     st.session_state.last_api_call_time = time.time()
     st.session_state.report_api_calls += 1
 
-def call_anthropic_api(messages: List[Dict], max_tokens: int = 1000, use_fallback: bool = False) -> Dict:
-    """Call Anthropic API with fallback model support"""
+def call_anthropic_api(
+    messages: List[Dict], 
+    max_tokens: int = 1000, 
+    use_fallback: bool = False,
+    system: str = None  # NEW PARAMETER
+) -> Dict:
+    """
+    FIXED: Call Anthropic API with proper system parameter handling
+    
+    Args:
+        messages: List of message dicts with 'role' (user/assistant only) and 'content'
+        max_tokens: Maximum tokens to generate
+        use_fallback: Whether to use fallback model
+        system: Optional system prompt (passed as top-level parameter, NOT in messages)
+    """
     try:
         anthropic_key = st.secrets["ANTHROPIC_API_KEY"]
     except:
@@ -944,11 +1079,16 @@ def call_anthropic_api(messages: List[Dict], max_tokens: int = 1000, use_fallbac
     
     model = MODEL_FALLBACK if use_fallback else MODEL_PRIMARY
     
+    # Build request data
     data = {
         "model": model,
         "max_tokens": max_tokens,
-        "messages": messages
+        "messages": messages  # ✅ Must only contain user/assistant roles
     }
+    
+    # ✅ FIX: Add system parameter separately (not as a message role)
+    if system:
+        data["system"] = system
     
     for attempt in range(3):
         try:
@@ -971,23 +1111,29 @@ def call_anthropic_api(messages: List[Dict], max_tokens: int = 1000, use_fallbac
                 time.sleep(wait_time)
                 continue
             
+            # ✅ NEW: Better error reporting for 400 errors
+            if response.status_code == 400:
+                error_detail = response.json()
+                raise Exception(f"400 Bad Request: {error_detail.get('error', {}).get('message', 'Unknown error')}")
+            
             response.raise_for_status()
             return response.json()
         
         except requests.exceptions.RequestException as e:
-            st.warning(f"⚠️ API error (attempt {attempt+1}/3): {str(e)[:50]}")
+            st.warning(f"⚠️ API error (attempt {attempt+1}/3): {str(e)[:100]}")
             if attempt == 2:
                 if not use_fallback:
                     st.info("🔄 Trying fallback model...")
-                    return call_anthropic_api(messages, max_tokens, use_fallback=True)
+                    return call_anthropic_api(messages, max_tokens, use_fallback=True, system=system)
                 raise
             time.sleep(RETRY_DELAYS[attempt])
     
     if not use_fallback:
         st.info("🔄 Primary model failed. Trying fallback model...")
-        return call_anthropic_api(messages, max_tokens, use_fallback=True)
+        return call_anthropic_api(messages, max_tokens, use_fallback=True, system=system)
     
     raise Exception("API call failed after 3 retries with both models")
+
 
 def parse_json_response(text: str) -> Dict:
     """Extract JSON from API response text"""
@@ -1217,6 +1363,42 @@ URL: {s['url'][:70]}""")
     
     # Build strict system prompt
     system_prompt = f"""You are a PRECISE technical report generator. ABSOLUTE RULES:
+CRITICAL RULE - EXACT NUMBERS ONLY:
+Every quantitative claim MUST use the EXACT number from sources.
+✓ "OpenScholar-8B outperforms GPT-4o by 5% in correctness [16]" 
+✗ "approximately 15-20% improvement" (FORBIDDEN - use exact numbers)
+✗ "significant improvement" (FORBIDDEN - vague)
+
+If exact number not in source: Write "Not specified in sources" or omit claim.
+NEVER round, estimate, approximate, or invent numbers.
+
+VERIFICATION REQUIREMENT:
+Before writing ANY number:
+1. Check if EXACT number appears in source text
+2. If yes: Use verbatim with citation [X]
+3. If no: Do NOT write that number
+
+EXAMPLES OF VIOLATIONS:
+❌ "15-20% improvement" (range not in source)
+❌ "approximately 78% satisfaction" (approximation)
+❌ "significant performance gains" (no number)
+
+✅ "outperforms GPT-4o by 5%" (exact from source)
+✅ "45M papers in datastore" (exact from source
+✅ "71.8% on ScholarQABench" (exact from source)
+    
+FORBIDDEN WORDS (without specific metrics):
+{', '.join(FORBIDDEN_GENERIC_TERMS[:10])}
+Replace with exact specifications or remove.
+
+MANDATORY SPECIFICITY:
+Every claim needs ONE of:
+- Exact benchmark + score: "ScholarQABench: 71.8%"
+- Parameter count: "8B parameters"
+- Dataset size: "45M papers, 237M embeddings"
+- System name + version: "OpenScholar-8B"
+- Specific year: "2024" not "recent"
+
 
 VIOLATION = REJECTION. NO EXCEPTIONS.
 
@@ -1345,13 +1527,13 @@ REMINDER: Every claim needs [X] citation. Every number needs source support. Gen
     user_prompt = add_temporal_context(user_prompt, sources[:max_sources])
     
     # First generation attempt
+    # ✅ NEW (CORRECT):
     response = call_anthropic_api(
-        [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ],
-        max_tokens=6000
+        [{"role": "user", "content": user_prompt}],  # Only user role
+        max_tokens=6000,
+        system=system_prompt  # System as separate parameter
     )
+
     text = "".join([c['text'] for c in response['content'] if c['type'] == 'text'])
     draft = parse_json_response(text)
     
@@ -1395,12 +1577,11 @@ Return corrected JSON."""
         
         try:
             retry_response = call_anthropic_api(
-                [
-                    {"role": "system", "content": system_prompt + "\n\nTHIS IS A CORRECTION ATTEMPT. FIX ALL ISSUES LISTED."},
-                    {"role": "user", "content": user_prompt + "\n\n" + correction_prompt}
-                ],
-                max_tokens=6000
+                [{"role": "user", "content": user_prompt + "\n\n" + correction_prompt}],
+                max_tokens=6000,
+                system=system_prompt + "\n\nTHIS IS A CORRECTION ATTEMPT. FIX ALL ISSUES LISTED."
             )
+            
             retry_text = "".join([c['text'] for c in retry_response['content'] if c['type'] == 'text'])
             corrected_draft = parse_json_response(retry_text)
             
