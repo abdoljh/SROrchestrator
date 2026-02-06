@@ -1645,7 +1645,7 @@ def format_authors_ieee(authors_str: str) -> str:
     else:
         return ', '.join(authors[:-1]) + ', and ' + authors[-1]
 
-def format_citation_with_tier(source: Dict, index: int, style: str = 'IEEE') -> str:
+def format_citation_with_tier0(source: Dict, index: int, style: str = 'IEEE') -> str:
     """Format citation with correct tier badge, DOI, and URL"""
     meta = source.get('metadata', {})
     tier = source.get('authority_tier', 'unknown')
@@ -1674,6 +1674,32 @@ def format_citation_with_tier(source: Dict, index: int, style: str = 'IEEE') -> 
             citation += f' DOI: <a href="https://doi.org/{clean_doi}">{clean_doi}</a>'
     # ✅ NEW: Otherwise add URL (for preprints, web resources, etc.)
     elif url:
+        citation += f' <a href="{url}">{url}</a>'
+    
+    return citation
+
+def format_citation_with_tier(source: Dict, index: int, style: str = 'IEEE') -> str:
+    """Format citation with correct tier badge and URL"""
+    meta = source.get('metadata', {})
+    tier = source.get('authority_tier', 'unknown')
+    url = source.get('url', '')
+    
+    tier_labels = {
+        'top_tier_journal': '[Nature/Science]',
+        'publisher_journal': '[Journal]',
+        'conference': '[Conference]',
+        'preprint': '[Preprint]',
+        'other': '[Other]'
+    }
+    
+    if style == 'APA':
+        citation = f"{meta.get('authors', 'Unknown')} ({meta.get('year', 'n.d.')}). {meta.get('title', 'Untitled')}. <i>{meta.get('venue', 'Unknown')}</i>. {tier_labels.get(tier, '')}"
+    else:  # IEEE
+        authors = format_authors_ieee(meta.get('authors', 'Unknown'))
+        citation = f'[{index}] {authors}, "{meta.get("title", "Untitled")}," {meta.get("venue", "Unknown")}, {meta.get("year", "n.d.")}. {tier_labels.get(tier, "")}'
+    
+    # ✅ NEW: Append URL if available
+    if url:
         citation += f' <a href="{url}">{url}</a>'
     
     return citation
@@ -2564,6 +2590,12 @@ def main():
                 try:
                     df = pd.read_csv(csv_path)
                     
+                    # ✅ FIX: Convert numeric columns to proper types
+                    numeric_columns = ['citations', 'source_count', 'relevance_score', 'year']
+                    for col in numeric_columns:
+                        if col in df.columns:
+                            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype(int)
+                    
                     # Initialize bookmarks
                     if 'bookmarked_papers' not in st.session_state:
                         st.session_state['bookmarked_papers'] = set()
@@ -2791,7 +2823,14 @@ def main():
                     st.divider()
                 
                 except Exception as e:
-                    st.warning(f"Could not load interactive viewer: {e}")
+                    st.error(f"⚠️ Could not load interactive viewer: {str(e)}")
+                    st.info("💡 The data is still available - you can download the CSV file below")
+                    # Try to show basic view
+                    try:
+                        basic_df = pd.read_csv(csv_path)
+                        st.dataframe(basic_df.head(20), use_container_width=True)
+                    except:
+                        pass
             
             # Display analytics chart
             chart_path = os.path.join(output_dir, "research_analytics.png")
