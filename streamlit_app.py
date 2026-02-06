@@ -1646,9 +1646,11 @@ def format_authors_ieee(authors_str: str) -> str:
         return ', '.join(authors[:-1]) + ', and ' + authors[-1]
 
 def format_citation_with_tier(source: Dict, index: int, style: str = 'IEEE') -> str:
-    """Format citation with correct tier badge"""
+    """Format citation with correct tier badge, DOI, and URL"""
     meta = source.get('metadata', {})
     tier = source.get('authority_tier', 'unknown')
+    url = source.get('url', '')
+    doi = meta.get('doi', '')
     
     tier_labels = {
         'top_tier_journal': '[Nature/Science]',
@@ -1659,10 +1661,22 @@ def format_citation_with_tier(source: Dict, index: int, style: str = 'IEEE') -> 
     }
     
     if style == 'APA':
-        return f"{meta.get('authors', 'Unknown')} ({meta.get('year', 'n.d.')}). {meta.get('title', 'Untitled')}. <i>{meta.get('venue', 'Unknown')}</i>. {tier_labels.get(tier, '')}"
-    else:
+        citation = f"{meta.get('authors', 'Unknown')} ({meta.get('year', 'n.d.')}). {meta.get('title', 'Untitled')}. <i>{meta.get('venue', 'Unknown')}</i>. {tier_labels.get(tier, '')}"
+    else:  # IEEE
         authors = format_authors_ieee(meta.get('authors', 'Unknown'))
-        return f'[{index}] {authors}, "{meta.get("title", "Untitled")}," {meta.get("venue", "Unknown")}, {meta.get("year", "n.d.")}. {tier_labels.get(tier, "")}'
+        citation = f'[{index}] {authors}, "{meta.get("title", "Untitled")}," {meta.get("venue", "Unknown")}, {meta.get("year", "n.d.")}. {tier_labels.get(tier, "")}'
+    
+    # ✅ NEW: Add DOI if available (preferred for published papers)
+    if doi and doi not in ('N/A', 'NA', 'Unknown', 'NONE', ''):
+        # Clean DOI - remove URL prefixes if present
+        clean_doi = doi.replace('https://doi.org/', '').replace('http://dx.doi.org/', '').replace('doi:', '').strip()
+        if clean_doi:  # Only add if not empty after cleaning
+            citation += f' DOI: <a href="https://doi.org/{clean_doi}">{clean_doi}</a>'
+    # ✅ NEW: Otherwise add URL (for preprints, web resources, etc.)
+    elif url:
+        citation += f' <a href="{url}">{url}</a>'
+    
+    return citation
 
 def extract_cited_references_enhanced(draft: Dict) -> Tuple[set, List[Dict]]:
     """Extract citations with context"""
