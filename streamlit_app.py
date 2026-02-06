@@ -942,7 +942,7 @@ def render_api_key_input_section():
         )
         
         # Apply button
-        if st.button("✅ Apply Keys (This Session Only)", key="apply_keys", use_container_width=True):
+        if st.button("✅ Apply Keys (This Session Only)", key="apply_keys", width='stretch'):
             st.session_state['user_s2_key'] = s2_key.strip()
             st.session_state['user_serp_key'] = serp_key.strip()
             st.session_state['user_core_key'] = core_key.strip()
@@ -2095,7 +2095,7 @@ def create_download_buttons(output_dir):
                 data=f,
                 file_name=os.path.basename(zip_path),
                 mime='application/zip',
-                use_container_width=True
+                width='stretch'
             )
 
 # ================================================================================
@@ -2477,10 +2477,10 @@ def main():
         col1, col2 = st.columns([2, 1])
         
         with col1:
-            search_button = st.button("🚀 Start Search", type="primary", use_container_width=True)
+            search_button = st.button("🚀 Start Search", type="primary", width='stretch')
         
         with col2:
-            if st.button("🔄 Clear Cache", use_container_width=True):
+            if st.button("🔄 Clear Cache", width='stretch'):
                 st.cache_data.clear()
                 st.success("Cache cleared!")
         
@@ -2708,7 +2708,7 @@ def main():
                         # Interactive table
                         st.dataframe(
                             styled_df,
-                            use_container_width=True,
+                            width='stretch',
                             height=400,
                             hide_index=False,
                             column_config={
@@ -2745,13 +2745,13 @@ def main():
                             bookmark_col1, bookmark_col2 = st.columns(2)
                             
                             with bookmark_col1:
-                                if st.button("⭐ Add Bookmarks", use_container_width=True):
+                                if st.button("⭐ Add Bookmarks", width='stretch'):
                                     st.session_state['bookmarked_papers'].update(selected_for_bookmark)
                                     st.success(f"Added {len(selected_for_bookmark)} bookmark(s)!")
                                     st.rerun()
                             
                             with bookmark_col2:
-                                if st.button("🗑️ Clear All", use_container_width=True):
+                                if st.button("🗑️ Clear All", width='stretch'):
                                     st.session_state['bookmarked_papers'].clear()
                                     st.success("All bookmarks cleared!")
                                     st.rerun()
@@ -2778,7 +2778,7 @@ def main():
                                         data=csv_data,
                                         file_name=f"selected_{len(selected_for_download)}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                                         mime="text/csv",
-                                        use_container_width=True
+                                        width='stretch'
                                     )
                                 
                                 with download_col2:
@@ -2788,7 +2788,7 @@ def main():
                                         data=json_data,
                                         file_name=f"selected_{len(selected_for_download)}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
                                         mime="application/json",
-                                        use_container_width=True
+                                        width='stretch'
                                     )
                             else:
                                 st.info("Select papers above to enable download")
@@ -2807,7 +2807,7 @@ def main():
                                     data=csv_data,
                                     file_name=f"filtered_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                                     mime="text/csv",
-                                    use_container_width=True
+                                    width='stretch'
                                 )
                             
                             with export_col2:
@@ -2817,7 +2817,7 @@ def main():
                                     data=json_data,
                                     file_name=f"filtered_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
                                     mime="application/json",
-                                    use_container_width=True
+                                    width='stretch'
                                 )
                     
                     st.divider()
@@ -2828,7 +2828,7 @@ def main():
                     # Try to show basic view
                     try:
                         basic_df = pd.read_csv(csv_path)
-                        st.dataframe(basic_df.head(20), use_container_width=True)
+                        st.dataframe(basic_df.head(20), width='stretch')
                     except:
                         pass
             
@@ -2836,7 +2836,7 @@ def main():
             chart_path = os.path.join(output_dir, "research_analytics.png")
             if os.path.exists(chart_path):
                 st.subheader("📈 Research Analytics")
-                st.image(chart_path, use_container_width=True)
+                st.image(chart_path, width='stretch')
                 st.divider()
             
             # Results preview
@@ -2966,7 +2966,7 @@ def main():
                     "🚀 Generate Strictly Verified Report",
                     disabled=not valid,
                     type="primary",
-                    use_container_width=True
+                    width='stretch'
                 ):
                     execute_report_pipeline()
                     st.rerun()
@@ -3092,7 +3092,7 @@ def main():
                             file_name=filename,
                             mime="text/html",
                             type="primary",
-                            use_container_width=True
+                            width='stretch'
                         )
                         st.info("""
                         **To create PDF:**
@@ -3128,7 +3128,7 @@ def main():
                             st.caption(f"✓ Found in {orch['source_count']} database(s) | 📊 {orch.get('citations', 0)} citations")
                         st.divider()
                 
-                if st.button("🔄 Generate Another Report", type="secondary", use_container_width=True):
+                if st.button("🔄 Generate Another Report", type="secondary", width='stretch'):
                     reset_report_system()
                     st.rerun()
             
@@ -3141,7 +3141,7 @@ def main():
                     exec_secs = int(st.session_state.report_execution_time % 60)
                     st.caption(f"Failed after {exec_mins}m {exec_secs}s")
                 
-                if st.button("🔄 Try Again", type="primary", use_container_width=True):
+                if st.button("🔄 Try Again", type="primary", width='stretch'):
                     reset_report_system()
                     st.rerun()
     
