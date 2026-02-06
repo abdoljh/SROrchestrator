@@ -3001,7 +3001,7 @@ def main():
                         st.metric("Avg Citations", f"{avg_cites:.1f}")
                 with col4:
                     st.metric("API Calls", st.session_state.report_api_calls)
-                
+
                 # Verification details
                 with st.expander("🛡️ Verification Details", expanded=False):
                     ver_summary = ver_results.get('verification', {})
@@ -3009,8 +3009,9 @@ def main():
                     specs = ver_results.get('technical_specs_found', {})
                     
                     st.markdown("**Claim Verification:**")
-                    st.markdown(f"- Total metrics found in sources: {sum(len(v) for v in ver_results.get('verification', {}).get('by_type', {}).values())}")
-                    st.markdown(f"- Violations flagged: {ver_summary.get('total_violations', 0)}")
+                    st.markdown(f"- Total violations flagged: {ver_summary.get('total_violations', 0)}")
+                    if ver_summary.get('by_type'):
+                        st.markdown(f"- By type: {dict(ver_summary.get('by_type', {}))}")
                     
                     st.markdown("**Citation Coverage:**")
                     st.markdown(f"- Coverage: {integrity.get('coverage', 0):.1%}")
@@ -3024,7 +3025,7 @@ def main():
                         st.markdown("**Sample Violations:**")
                         for v in ver_summary['violations'][:5]:
                             st.caption(f"[{v['type']}] {v.get('suggestion', v.get('issue', ''))}")
-                
+
                 st.markdown("---")
                 
                 # Download
