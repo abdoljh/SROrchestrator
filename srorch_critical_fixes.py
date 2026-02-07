@@ -309,14 +309,102 @@ class AlignedClaimVerifier:
         """Check if number needs no source (years, small ints)."""
         try:
             n = float(num)
-            if 2015 <= n <= 2030:
+            # Years 1950-2030 (publication years)
+            if 1950 <= n <= 2030:
                 return True
+            # Small structural numbers
             if n <= 10:
                 return True
             return False
         except:
             return False
 
+    def _is_acceptable(self, num: str, context: str = "") -> bool:
+        """Check if number needs no source verification."""
+        try:
+            n = float(num)
+            
+            # Publication years (common in citations)
+            if 1950 <= n <= 2030:
+                # Additional check: is this likely a year in context?
+                if "year" in context.lower() or int(n) == n:  # Whole numbers likely years
+                    return True
+            
+            # Small structural numbers (counts up to 10)
+            if n <= 10 and n == int(n):
+                return True
+                
+            return False
+        except (ValueError, TypeError):
+            return False
+    
+    def verify_draft(self, draft: Dict) -> Dict:
+        """Comprehensive verification with context-aware exemptions."""
+        violations = []
+        cited = set()
+        
+        sections = {
+            'abstract': draft.get('abstract', ''),
+            'introduction': draft.get('introduction', ''),
+            'literatureReview': draft.get('literatureReview', ''),
+            'dataAnalysis': draft.get('dataAnalysis', ''),
+            'challenges': draft.get('challenges', ''),
+            'futureOutlook': draft.get('futureOutlook', ''),
+            'conclusion': draft.get('conclusion', '')
+        }
+        
+        for section_name, content in sections.items():
+            if not isinstance(content, str):
+                continue
+            
+            for match in re.finditer(r'\[(\d+)\]', content):
+                citation_num = match.group(1)
+                int_num = int(citation_num)
+                cited.add(int_num)
+                
+                # Check validity
+                if not self.is_valid_citation(int_num):
+                    violations.append({
+                        'type': 'invalid_citation',
+                        'severity': 'CRITICAL',
+                        'section': section_name,
+                        'citation': citation_num,
+                        'issue': f'Citation [{citation_num}] not found (max: {self.source_count})'
+                    })
+                    continue
+                
+                # Check numbers in context (with surrounding text for context)
+                context_start = max(0, match.start() - 80)
+                context_end = min(len(content), match.end() + 80)
+                context = content[context_start:context_end]
+                
+                numbers = re.findall(r'(\d+(?:\.\d+)?)\s*(?:%|percent)?', context)
+                source_data = self.metrics_cache.get(citation_num, {})
+                source_nums = source_data.get('numbers', []) + source_data.get('percentages', [])
+                
+                for num in numbers:
+                    # Skip if acceptable (years, small ints)
+                    if self._is_acceptable(num, context):
+                        continue
+                        
+                    if num not in source_nums:
+                        violations.append({
+                            'type': 'unsupported_number',
+                            'severity': 'WARNING',
+                            'section': section_name,
+                            'citation': citation_num,
+                            'number': num,
+                            'issue': f'Number {num} not in source [{citation_num}]'
+                        })
+        
+        return {
+            'total_violations': len(violations),
+            'violations': violations,
+            'has_critical': any(v['severity'] == 'CRITICAL' for v in violations),
+            'coverage': len(cited) / self.source_count if self.source_count else 0,
+            'cited_count': len(cited),
+            'total_sources': self.source_count
+        }
 
 # ================================================================================
 # INTEGRATION HELPERS
