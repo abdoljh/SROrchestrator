@@ -2165,6 +2165,8 @@ def execute_report_pipeline():
         
         # Stage 3: QUALITY FILTERING
         st.info("🛡️ Stage 3/6: Filtering low-quality sources...")
+        raw_sources = convert_orchestrator_to_source_format(results)
+
         filtered_sources, fix_metadata = integrate_fixes_into_pipeline(raw_sources, topic)
         
         # Show domain detection
