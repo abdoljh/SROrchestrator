@@ -1332,60 +1332,9 @@ def generate_draft_strict(
     variations: List[str],
     evaluation_frameworks: List[str],
     max_sources: int = 25,
-    boundary_prompt: str = ""
+    boundary_prompt: str = ""  # CRITICAL FIX: Added parameter
 ) -> Tuple[Dict, Dict]:
     """Generate draft with strict technical specificity and source boundaries"""
-    
-    # Mock the missing function - implement this properly in your actual code
-    def update_report_progress(stage: str, message: str, progress: int) -> None:
-        """Update progress report - implement based on your system"""
-        print(f"[{stage}] {message} - {progress}%")
-    
-    # Mock other missing functions - implement these in your actual code
-    def aggregate_technical_specs(sources: List[Dict]) -> Dict:
-        """Aggregate technical specifications from sources"""
-        return {
-            'benchmarks': ['Benchmark1', 'Benchmark2'],
-            'models': ['Model1', 'Model2'],
-            'parameter_counts': ['100M', '200M'],
-            'dataset_sizes': ['1M', '2M'],
-            'architectures': ['Architecture1', 'Architecture2']
-        }
-    
-    def extract_technical_specifications(text: str) -> Dict:
-        """Extract technical specifications from text"""
-        return {}
-    
-    def call_anthropic_api(messages: List[Dict], max_tokens: int, system: str) -> Dict:
-        """Call Anthropic API - implement based on your actual API client"""
-        return {'content': [{'type': 'text', 'text': '{"abstract": "Test"}'}]}
-    
-    def parse_json_response(text: str) -> Dict:
-        """Parse JSON response - implement proper parsing"""
-        try:
-            import json
-            return json.loads(text)
-        except:
-            return {'abstract': text[:100]}
-    
-    def add_temporal_context(prompt: str, sources: List[Dict]) -> str:
-        """Add temporal context to prompt"""
-        return prompt
-    
-    # Define the missing class
-    class AlignedClaimVerifier:
-        def __init__(self, sources: List[Dict]):
-            self.sources = sources
-        
-        def verify_draft(self, draft: Dict) -> Dict:
-            """Verify draft claims - implement verification logic"""
-            return {
-                'coverage': 0.8,
-                'cited_count': 10,
-                'total_sources': len(self.sources),
-                'has_critical': False,
-                'violations': []
-            }
     
     update_report_progress('Drafting', 'Writing with strict technical requirements...', 65)
     
@@ -1418,7 +1367,7 @@ def generate_draft_strict(
 Authors: {meta.get('authors', 'Unknown')}
 Venue: {meta.get('venue', 'Unknown')} | Citations: {meta.get('citations', 0)}
 Technical: {spec_summary if spec_summary else 'General content'}
-URL: {s.get('url', '')[:70]}""")
+URL: {s['url'][:70]}""")
     
     sources_text = "\n\n".join(source_list)
     
@@ -1499,10 +1448,7 @@ Architectures: {', '.join(all_specs.get('architectures', ['None found']))}
 REMEMBER: Specificity is MANDATORY. Generic language is FORBIDDEN."""
 
     # CRITICAL FIX: Prepend boundary prompt to enforce source constraints
-    if boundary_prompt:
-        full_system_prompt = boundary_prompt + "\n\n" + base_system_prompt
-    else:
-        full_system_prompt = base_system_prompt
+    full_system_prompt = boundary_prompt + "\n\n" + base_system_prompt if boundary_prompt else base_system_prompt
 
     # Variations and evaluation context
     variations_text = f"""PHRASE VARIATION (Required):
@@ -1610,10 +1556,10 @@ REMINDER: Every claim needs [X] citation. Every number needs source support. Gen
         if key not in draft or not draft[key]:
             draft[key] = "Section content." if key != 'mainSections' else [{"title": "Section", "content": "Content."}]
     
-    # CRITICAL FIX: Use AlignedClaimVerifier
+    # CRITICAL FIX: Use AlignedClaimVerifier instead of StrictClaimVerifier
     update_report_progress('Verification', 'Running strict claim verification...', 75)
-    verifier = AlignedClaimVerifier(sources[:max_sources])
-    verification = verifier.verify_draft(draft)
+    verifier = AlignedClaimVerifier(sources[:max_sources])  # CHANGED: AlignedClaimVerifier
+    verification = verifier.verify_draft(draft)  # CHANGED: New verify_draft method
     
     # Check source coverage
     coverage_check = {
@@ -1630,9 +1576,9 @@ REMINDER: Every claim needs [X] citation. Every number needs source support. Gen
         correction_prompt = f"""
 CRITICAL ISSUES FOUND - MUST FIX:
 
-{chr(10).join([f"- {v.get('type', 'unknown')}: {v.get('issue', '')}" for v in verification.get('violations', [])[:10]])}
+{chr(10).join([f"- {v['type']}: {v.get('issue', '')}" for v in verification.get('violations', [])[:10]])}
 
-COVERAGE ISSUE: {'Insufficient source coverage'}
+COVERAGE ISSUE: {coverage_check['message'] if 'message' in coverage_check else 'Insufficient source coverage'}
 
 REGENERATION RULES:
 1. Remove ALL forbidden generic terms
@@ -1690,7 +1636,6 @@ Return corrected JSON."""
     }
     
     return draft, verification_report
-
 
 # ================================================================================
 # CITATION FORMATTING AND HTML GENERATION
@@ -2762,7 +2707,9 @@ def main():
                         display_df = filtered_df[selected_cols].copy()
                         
                         # Add bookmark indicator
-                        display_df.insert(0, ''�', display_df.index.map(lambda x: '⭐' if x in st.session_state['bookmarked_papers'] else ''))
+                        # Adding a bookmark indicator column
+                        display_df.insert(0, '⭐', display_df.index.map(lambda x: '⭐' if x in st.session_state['bookmarked_papers'] else ''))
+                        #display_df.insert(0, ''�', display_df.index.map(lambda x: '⭐' if x in st.session_state['bookmarked_papers'] else ''))
                         
                         # Apply alternating row colors
                         def highlight_rows(row):
