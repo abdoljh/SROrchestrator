@@ -2163,20 +2163,18 @@ def execute_report_pipeline():
             
             update_report_progress('Research', f'Found {len(results)} papers', 50)
         
-        # Stage 3: QUALITY FILTERING
+        # Stage 3: QUALITY FILTERING (CRITICAL FIX)
         st.info("🛡️ Stage 3/6: Filtering low-quality sources...")
-        raw_sources = convert_orchestrator_to_source_format(results)
-
-        filtered_sources, fix_metadata = integrate_fixes_into_pipeline(raw_sources, topic)
+        update_report_progress('Filtering', 'Removing irrelevant sources...', 55)
         
-        # Show domain detection
-        domain_display = {
-            'medical': '🏥 Medical',
-            'computer_science': '💻 Computer Science',
-            'general': '📚 General'
-        }.get(fix_metadata['domain'], '📚 General')
+        # CRITICAL FIX: Define raw_sources from session state
+        raw_sources = st.session_state.report_research.get('sources', [])
         
-        st.info(f"Domain detected: {domain_display}")
+        if not raw_sources:
+            raise Exception("No sources retrieved for filtering")
+        
+        # Apply critical fixes pipeline
+        sources, fix_metadata = integrate_fixes_into_pipeline(raw_sources, topic)
         
         # Show filtering results to user
         col1, col2, col3 = st.columns(3)
@@ -2186,6 +2184,15 @@ def execute_report_pipeline():
             st.metric("After Filtering", fix_metadata['filtered_count'])
         with col3:
             st.metric("Year Corrections", fix_metadata.get('year_corrections', 0))
+        
+        # Show domain detection
+        domain_display = {
+            'medical': '🏥 Medical',
+            'computer_science': '💻 Computer Science',
+            'general': '📚 General'
+        }.get(fix_metadata.get('domain', 'general'), '📚 General')
+        
+        st.info(f"Domain detected: {domain_display}")
         
         if fix_metadata['original_count'] != fix_metadata['filtered_count']:
             with st.expander(f"View {fix_metadata['original_count'] - fix_metadata['filtered_count']} filtered sources"):
