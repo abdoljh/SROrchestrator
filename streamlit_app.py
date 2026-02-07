@@ -2163,14 +2163,18 @@ def execute_report_pipeline():
             
             update_report_progress('Research', f'Found {len(results)} papers', 50)
         
-        # Stage 3: QUALITY FILTERING (CRITICAL FIX)
+        # Stage 3: QUALITY FILTERING
         st.info("🛡️ Stage 3/6: Filtering low-quality sources...")
-        update_report_progress('Filtering', 'Removing irrelevant sources...', 55)
+        filtered_sources, fix_metadata = integrate_fixes_into_pipeline(raw_sources, topic)
         
-        raw_sources = convert_orchestrator_to_source_format(results)
+        # Show domain detection
+        domain_display = {
+            'medical': '🏥 Medical',
+            'computer_science': '💻 Computer Science',
+            'general': '📚 General'
+        }.get(fix_metadata['domain'], '📚 General')
         
-        # Apply critical fixes pipeline
-        sources, fix_metadata = integrate_fixes_into_pipeline(raw_sources, topic)
+        st.info(f"Domain detected: {domain_display}")
         
         # Show filtering results to user
         col1, col2, col3 = st.columns(3)

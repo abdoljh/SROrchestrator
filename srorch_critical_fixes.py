@@ -16,10 +16,10 @@ from collections import Counter, defaultdict
 class SourceQualityFilter:
     """
     Multi-tier filtering to eliminate irrelevant sources.
-    Addresses: 'Greek Australian Literature', off-topic papers, future years.
+    Domain-aware: CS/AI, Medical, or General topics.
     """
     
-    # Blacklist: Venues irrelevant to CS/AI/ML/RAG
+    # Blacklist: Venues irrelevant to academic/technical topics
     BLACKLISTED_VENUES = {
         'journal of the australasian universities language and literature association',
         'language and literature: international journal of stylistics',
@@ -29,29 +29,100 @@ class SourceQualityFilter:
         'czech literature abroad',
         'parable',
         'professionalisation',
+        'tourism management',  # Unless specifically relevant
     }
     
-    # Off-topic keywords (humanities/literature)
+    # Off-topic keywords (humanities/literature) - always reject unless domain override
     OFFTOPIC_INDICATORS = [
         'literary analysis', 'poetry', 'shakespeare', 'novelistic',
         'cultural discourse', 'stylistics', 'multilingual australian literature',
-        'book review', 'parable', 'professionalisation'
+        'book review', 'parable', 'professionalisation',
+        'ancient civilization', 'bronze age', 'archaeological',  # Added for LCH case
+        'paleopathological',  # Added - ancient disease studies not modern clinical
     ]
     
-    # CS/AI indicators that override off-topic keywords
-    CS_INDICATORS = [
-        'retrieval', 'language model', 'neural', 'embedding', 'transformer',
-        'synthesis', 'benchmark', 'dataset', 'rag', 'llm', 'generation',
-        'scientific literature', 'citation', 'abstract'
+    # Domain-specific indicators for relevance scoring
+    DOMAIN_INDICATORS = {
+        'computer_science': [
+            'retrieval', 'language model', 'neural', 'embedding', 'transformer',
+            'synthesis', 'benchmark', 'dataset', 'rag', 'llm', 'generation',
+            'scientific literature', 'citation', 'abstract', 'algorithm',
+            'fine-tuning', 'pre-training', 'token', 'vector', 'similarity'
+        ],
+        'medical': [
+            'patient', 'clinical', 'treatment', 'disease', 'syndrome',
+            'histiocytosis', 'langerhans', 'pediatric', 'oncology',
+            'biomarker', 'therapeutic', 'prognosis', 'pathology',
+            'diagnosis', 'lesion', 'mutation', 'gene', 'therapy',
+            'prognostic', 'histological', 'immunohistochemical',
+            'chemotherapy', 'radiation', 'surgery', 'outcome',
+            'survival', 'recurrence', 'metastasis', 'tumor',
+            'case series', 'cohort', 'prospective', 'retrospective'
+        ],
+        'general': [
+            'research', 'study', 'analysis', 'methodology',
+            'investigation', 'evaluation', 'assessment'
+        ]
+    }
+    
+    # Medical-specific quantitative specifiers for content extraction
+    MEDICAL_SPECIFIERS = [
+        'patient', 'subjects', 'n=', 'n =', 'sample size',
+        'mean', 'median', 'sd', 'standard deviation',
+        'confidence interval', 'ci', 'p-value', 'p value',
+        'sensitivity', 'specificity', 'ppv', 'npv',
+        'hazard ratio', 'hr', 'odds ratio', 'or',
+        'relative risk', 'rr', 'absolute risk reduction',
+        'number needed to treat', 'nnt',
+        'survival rate', 'response rate', 'remission',
+        'median survival', 'overall survival', 'os',
+        'progression-free survival', 'pfs',
+        'adverse event', 'toxicity', 'grade 3', 'grade 4',
+        'mg/m2', 'mg/kg', 'dose', 'cycle', 'regimen'
     ]
     
     MIN_RELEVANCE_SCORE = 200
+    MIN_TOPIC_MATCHES = 1  # At least one topic term must appear
+    
+    @classmethod
+    def detect_domain(cls, topic: str) -> str:
+        """
+        Auto-detect domain based on topic keywords.
+        Returns: 'computer_science', 'medical', or 'general'
+        """
+        topic_lower = topic.lower()
+        
+        # Medical indicators
+        medical_terms = ['disease', 'syndrome', 'cancer', 'tumor', 'patient', 
+                        'clinical', 'treatment', 'histiocytosis', 'pediatric',
+                        'oncology', 'pathology', 'diagnosis', 'therapy']
+        if any(term in topic_lower for term in medical_terms):
+            return 'medical'
+        
+        # CS/AI indicators
+        cs_terms = ['retrieval', 'language model', 'neural', 'embedding',
+                   'synthesis', 'rag', 'llm', 'benchmark', 'dataset',
+                   'algorithm', 'fine-tuning', 'transformer']
+        if any(term in topic_lower for term in cs_terms):
+            return 'computer_science'
+        
+        return 'general'
     
     @classmethod
     def filter_sources(cls, sources: List[Dict], topic: str = "") -> Tuple[List[Dict], List[str]]:
-        """Apply comprehensive filtering."""
+        """
+        Apply comprehensive domain-aware filtering.
+        Returns: (filtered_sources, rejection_reasons)
+        """
         filtered = []
         rejections = []
+        
+        # Detect domain from topic
+        domain = cls.detect_domain(topic)
+        domain_keywords = cls.DOMAIN_INDICATORS.get(domain, cls.DOMAIN_INDICATORS['general'])
+        
+        # Extract topic terms (words > 3 characters)
+        topic_terms = [t for t in topic.lower().split() if len(t) > 3]
         
         for i, source in enumerate(sources):
             meta = source.get('metadata', {})
@@ -60,7 +131,7 @@ class SourceQualityFilter:
             abstract = str(source.get('content', '')).lower()
             relevance = source.get('relevance_score', 0)
             
-            # Tier 1: Relevance threshold
+            # Tier 1: Minimum relevance threshold
             if relevance < cls.MIN_RELEVANCE_SCORE:
                 rejections.append(f"[{i}] Low relevance ({relevance}): {title[:50]}...")
                 continue
@@ -70,16 +141,28 @@ class SourceQualityFilter:
                 rejections.append(f"[{i}] Blacklisted venue: {venue[:60]}")
                 continue
             
-            # Tier 3: Off-topic with CS override
+            # Tier 3: Off-topic content check (strict for all domains)
             combined = f"{title} {abstract}"
-            off_topic = sum(1 for kw in cls.OFFTOPIC_INDICATORS if kw in combined)
-            cs_score = sum(1 for kw in cls.CS_INDICATORS if kw in combined)
+            off_topic_score = sum(1 for kw in cls.OFFTOPIC_INDICATORS if kw in combined)
             
-            if off_topic > 0 and cs_score == 0:
-                rejections.append(f"[{i}] Off-topic (score: {off_topic}): {title[:50]}...")
+            # CRITICAL FIX: Check for topic term matches
+            topic_matches = sum(1 for term in topic_terms if term in combined)
+            
+            # Check domain-specific keywords
+            domain_matches = sum(1 for kw in domain_keywords if kw in combined)
+            
+            # Reject if:
+            # - Strongly off-topic (multiple off-topic keywords) OR
+            # - No topic terms AND insufficient domain matches
+            if off_topic_score >= 2:
+                rejections.append(f"[{i}] Strongly off-topic (score {off_topic_score}): {title[:50]}...")
                 continue
             
-            # Tier 4: Temporal sanity
+            if topic_matches < cls.MIN_TOPIC_MATCHES and domain_matches < 2:
+                rejections.append(f"[{i}] No topic/domain match (topic:{topic_matches}, domain:{domain_matches}): {title[:50]}...")
+                continue
+            
+            # Tier 4: Temporal sanity check
             year = str(meta.get('year', ''))
             if year.isdigit():
                 year_int = int(year)
@@ -90,14 +173,46 @@ class SourceQualityFilter:
                         rejections.append(f"[{i}] Future year {year_int}: {title[:50]}...")
                         continue
             
+            # Tier 5: Special case - reject ancient/historical studies for modern clinical topics
+            if domain == 'medical':
+                ancient_indicators = ['bronze age', 'ancient', 'paleopathological', 
+                                     'archaeological', 'mummy', 'skeletal remains']
+                if any(ind in combined for ind in ancient_indicators):
+                    # Only allow if explicitly about the specific disease
+                    if not any(term in combined for term in topic_terms[:2]):
+                        rejections.append(f"[{i}] Ancient/historical study not specific to topic: {title[:50]}...")
+                        continue
+            
             filtered.append(source)
         
         print(f"Source filtering: {len(sources)} → {len(filtered)} ({len(sources) - len(filtered)} removed)")
+        print(f"Domain detected: {domain}")
         if rejections:
-            print(f"Sample rejections: {rejections[:3]}")
+            print(f"Sample rejections: {rejections[:5]}")
         
         return filtered, rejections
-
+    
+    @classmethod
+    def extract_medical_metrics(cls, source: Dict) -> Dict[str, List[str]]:
+        """
+        Extract medical-specific quantitative metrics from source.
+        Returns dict of metric types found.
+        """
+        text = ' '.join([
+            str(source.get('metadata', {}).get('title', '')),
+            str(source.get('content', '')),
+            str(source.get('_orchestrator_data', {}).get('abstract', ''))
+        ]).lower()
+        
+        found_metrics = {}
+        
+        for specifier in cls.MEDICAL_SPECIFIERS:
+            pattern = specifier.replace(' ', r'\s*').replace('-', r'[-\s]?')
+            matches = re.findall(rf'\b{pattern}\b[^.]*', text, re.IGNORECASE)
+            if matches:
+                found_metrics[specifier] = matches[:3]  # First 3 matches
+        
+        return found_metrics
 
 # ================================================================================
 # FIX 2: TEMPORAL NORMALIZATION
@@ -414,12 +529,16 @@ def integrate_fixes_into_pipeline(raw_sources: List[Dict], topic: str) -> Tuple[
     """
     Apply all fixes to source list. Returns (cleaned_sources, metadata).
     """
-    metadata = {'original_count': len(raw_sources)}
+    metadata = {
+        'original_count': len(raw_sources),
+        'domain': SourceQualityFilter.detect_domain(topic)
+    }
     
-    # Fix 1: Quality filtering
+    # Fix 1: Quality filtering with domain awareness
     filtered, rejections = SourceQualityFilter.filter_sources(raw_sources, topic)
     metadata['filtered_count'] = len(filtered)
     metadata['rejection_reasons'] = rejections[:10]
+    metadata['domain'] = SourceQualityFilter.detect_domain(topic)
     
     # Fallback if too aggressive
     if len(filtered) < 5:
@@ -432,4 +551,14 @@ def integrate_fixes_into_pipeline(raw_sources: List[Dict], topic: str) -> Tuple[
                      if normalize_publication_year(s) != s.get('metadata', {}).get('year', ''))
     metadata['year_corrections'] = year_fixes
     
+    # Fix 3: Extract medical metrics if medical domain
+    if metadata['domain'] == 'medical':
+        medical_metrics = {}
+        for i, source in enumerate(filtered[:10], 1):
+            metrics = SourceQualityFilter.extract_medical_metrics(source)
+            if metrics:
+                medical_metrics[str(i)] = metrics
+        metadata['medical_metrics_found'] = medical_metrics
+    
     return filtered, metadata
+
