@@ -2162,19 +2162,30 @@ def execute_report_pipeline():
                 raise Exception("No results found from academic databases")
             
             update_report_progress('Research', f'Found {len(results)} papers', 50)
-        
+
         # Stage 3: QUALITY FILTERING (CRITICAL FIX)
         st.info("🛡️ Stage 3/6: Filtering low-quality sources...")
         update_report_progress('Filtering', 'Removing irrelevant sources...', 55)
         
-        # CRITICAL FIX: Define raw_sources from session state
-        raw_sources = st.session_state.report_research.get('sources', [])
-        
-        if not raw_sources:
-            raise Exception("No sources retrieved for filtering")
+        # MINIMAL FIX: Ensure raw_sources is defined from results
+        raw_sources = convert_orchestrator_to_source_format(results)
         
         # Apply critical fixes pipeline
         sources, fix_metadata = integrate_fixes_into_pipeline(raw_sources, topic)
+
+
+        # Stage 3: QUALITY FILTERING (CRITICAL FIX)
+        #st.info("🛡️ Stage 3/6: Filtering low-quality sources...")
+        #update_report_progress('Filtering', 'Removing irrelevant sources...', 55)
+        
+        # CRITICAL FIX: Define raw_sources from session state
+        #raw_sources = st.session_state.report_research.get('sources', [])
+        
+        #if not raw_sources:
+            #raise Exception("No sources retrieved for filtering")
+        
+        # Apply critical fixes pipeline
+        #sources, fix_metadata = integrate_fixes_into_pipeline(raw_sources, topic)
         
         # Show filtering results to user
         col1, col2, col3 = st.columns(3)
