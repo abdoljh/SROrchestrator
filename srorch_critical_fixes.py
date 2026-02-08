@@ -400,12 +400,13 @@ class AlignedClaimVerifier:
                 
                 # Check numbers in context
                 context = content[max(0, match.start()-80):min(len(content), match.end()+80)]
-                numbers = re.findall(r'(\d+(?:\.\d+)?)\s*(?:%|percent)?', context)
+                numbers = re.findall(r'(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)\s*(?:%|percent)?', context)
                 source_data = self.metrics_cache.get(citation_num, {})
                 source_nums = source_data.get('numbers', []) + source_data.get('percentages', [])
-                
+
                 for num in numbers:
-                    if num not in source_nums and not self._is_acceptable(num):
+                    num_clean = num.replace(',', '')
+                    if num_clean not in source_nums and num not in source_nums and not self._is_acceptable(num_clean):
                         violations.append({
                             'type': 'unsupported_number',
                             'severity': 'WARNING',
@@ -497,16 +498,17 @@ class AlignedClaimVerifier:
                 context_end = min(len(content), match.end() + 80)
                 context = content[context_start:context_end]
                 
-                numbers = re.findall(r'(\d+(?:\.\d+)?)\s*(?:%|percent)?', context)
+                numbers = re.findall(r'(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)\s*(?:%|percent)?', context)
                 source_data = self.metrics_cache.get(citation_num, {})
                 source_nums = source_data.get('numbers', []) + source_data.get('percentages', [])
-                
+
                 for num in numbers:
+                    num_clean = num.replace(',', '')
                     # Skip if acceptable (years, small ints)
-                    if self._is_acceptable(num, context):
+                    if self._is_acceptable(num_clean, context):
                         continue
-                        
-                    if num not in source_nums:
+
+                    if num_clean not in source_nums and num not in source_nums:
                         violations.append({
                             'type': 'unsupported_number',
                             'severity': 'WARNING',
