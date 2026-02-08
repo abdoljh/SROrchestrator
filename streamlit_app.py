@@ -605,6 +605,7 @@ def deduplicate_and_rank_sources_strict(sources: List[Dict]) -> List[Dict]:
         seen.values(),
         key=lambda x: (
             TIER_ORDER.get(x.get('authority_tier'), 5),
+            -safe_int(x.get('metadata', {}).get('year', 0)),
             -safe_int(x.get('metadata', {}).get('citations', 0)),
             -x.get('source_count', 1)
         )
@@ -1825,6 +1826,7 @@ def generate_html_report_strict(
             text-align: center;
             padding-top: 2in;
             page-break-after: always;
+            page-break-inside: avoid;
         }}
         .cover h1 {{
             font-size: 24pt;
@@ -1883,6 +1885,7 @@ def generate_html_report_strict(
             padding: 1rem;
             margin: 1rem 0;
             font-size: 10pt;
+            page-break-inside: avoid;
         }}
         .specs-grid {{
             display: grid;

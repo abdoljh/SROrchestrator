@@ -64,8 +64,8 @@ class ResearchOrchestrator:
             'enable_visualization': True,
             'export_formats': ['csv', 'json', 'bibtex'],
             'recency_boost': True,
-            'recency_years': 5,
-            'recency_multiplier': 1.2
+            'recency_years': 3,
+            'recency_multiplier': 1.5
         }
 
         self.session_metadata = {
