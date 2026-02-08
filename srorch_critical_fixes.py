@@ -1,5 +1,9 @@
+# ==============================================
+# srorch_critical_fixes.py
+# SROrch Critical Fixes Module
+# ==============================================
+
 """
-SROrch Critical Fixes Module
 Implements all improvements identified in critical analysis
 """
 
@@ -9,9 +13,9 @@ from typing import List, Dict, Tuple, Optional, Set
 from collections import Counter, defaultdict
 
 
-# ================================================================================
+# ==============================================
 # FIX 1: SOURCE QUALITY FILTERING
-# ================================================================================
+# ==============================================
 
 class SourceQualityFilter:
     """
@@ -119,6 +123,16 @@ class SourceQualityFilter:
         
         # Detect domain from topic
         domain = cls.detect_domain(topic)
+
+        # Add explicit rejection for ancient/archaeological studies in medical topics:
+        if domain == 'medical':
+            ancient_terms = ['bronze age', 'ancient', 'paleopathological', 'archaeological', 'mummy']
+            if any(term in combined for term in ancient_terms):
+                # Only allow if specific disease name appears in title
+                if not any(disease_term in title for disease_term in topic.lower().split()[:3]):
+                    rejections.append(f"[{i}] Ancient study not specific to {topic}: {title[:50]}...")
+                    #continue
+        
         domain_keywords = cls.DOMAIN_INDICATORS.get(domain, cls.DOMAIN_INDICATORS['general'])
         
         # Extract topic terms (words > 3 characters)
@@ -214,9 +228,9 @@ class SourceQualityFilter:
         
         return found_metrics
 
-# ================================================================================
+# ==============================================
 # FIX 2: TEMPORAL NORMALIZATION
-# ================================================================================
+# ==============================================
 
 def normalize_publication_year(source: Dict) -> str:
     """Normalize year using DOI priority. Fixes 2026→2025."""
@@ -274,9 +288,9 @@ def apply_year_normalization(sources: List[Dict]) -> List[Dict]:
     return sources
 
 
-# ================================================================================
+# ==============================================
 # FIX 3: SOURCE BOUNDARY PROMPT
-# ================================================================================
+# ==============================================
 
 def create_source_boundary_prompt(sources: List[Dict], topic: str, max_sources: int = 25) -> str:
     """Create strict boundary to prevent hallucinated citations."""
@@ -302,10 +316,9 @@ def create_source_boundary_prompt(sources: List[Dict], topic: str, max_sources: 
         entries.append(f"[{i}] {title}... ({venue}, {year}){metric_str}")
     
     return f"""
-╔══════════════════════════════════════════════════════════════════╗
-║              STRICT SOURCE BOUNDARY - MANDATORY                  ║
-╚══════════════════════════════════════════════════════════════════╝
-
+╔══════════════════════════════════════════════╗
+║      STRICT SOURCE BOUNDARY - MANDATORY      ║
+╚══════════════════════════════════════════════╝
 Topic: "{topic}"
 
 You may ONLY cite these {len(sources[:max_sources])} sources using [1]-[{len(sources[:max_sources])}]:
@@ -326,9 +339,9 @@ CORRECT:
 """
 
 
-# ================================================================================
+# ==============================================
 # FIX 4: ENHANCED VERIFICATION
-# ================================================================================
+# ==============================================
 
 class AlignedClaimVerifier:
     """Verifier aligned with generation data to eliminate false negatives."""
@@ -521,9 +534,9 @@ class AlignedClaimVerifier:
             'total_sources': self.source_count
         }
 
-# ================================================================================
+# ==============================================
 # INTEGRATION HELPERS
-# ================================================================================
+# ==============================================
 
 def integrate_fixes_into_pipeline(raw_sources: List[Dict], topic: str) -> Tuple[List[Dict], Dict]:
     """

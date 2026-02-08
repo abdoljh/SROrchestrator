@@ -1,4 +1,8 @@
-# SROrch (Scholarly Research Orchestrator) - Enhanced Version
+
+# ==============================================
+# master_orchestrator.py
+# SROrch (Scholarly Research Orchestrator)
+# ==============================================
 
 import os
 import csv
@@ -30,9 +34,9 @@ import wiley_utils
 import tf_utils
 import acm_utils
 import dblp_utils
-import sage_utils  # ✅ NEW: SAGE Journals
+import sage_utils
 
-# ✅ NEW: Research Gap Analysis
+# Research Gap Analysis
 import gap_utils
 from gap_utils import analyze_research_gaps
 
@@ -345,7 +349,6 @@ class ResearchOrchestrator:
                 self.session_metadata['failed_engines'].append("SCOPUS (no API key)")
             
             if is_valid_key(self.api_keys.get('springer')):
-                #tasks[executor.submit(springer_utils.fetch_and_process_springer, self.api_keys['springer'], query, max_limit=limit_per_engine)] = "Springer Nature"
                 tasks[executor.submit(springer_utils.fetch_and_process_springer, query, max_limit=limit_per_engine)] = "Springer Nature"
 
                 print(f"  ✓ Springer Nature enabled (API key provided)")
@@ -390,7 +393,6 @@ class ResearchOrchestrator:
             tasks[executor.submit(dblp_utils.fetch_and_process_dblp, query, max_limit=limit_per_engine)] = "DBLP"
             print(f"  ✓ DBLP enabled (free)")
             
-            # ✅ NEW: SAGE Journals
             tasks[executor.submit(sage_utils.fetch_and_process_sage, query, max_limit=limit_per_engine)] = "SAGE Journals"
             print(f"  ✓ SAGE Journals enabled (free)")
 

@@ -1,5 +1,10 @@
+# ==============================================
+# streamlit_app.py
+# SROrch Streamlit Interface
+# ==============================================
+
 """
-SROrch Streamlit Interface - COMPLETE VERSION with Strict Verification
+COMPLETE VERSION with Strict Verification
 A comprehensive web interface for Scholarly Research Orchestrator with 
 integrated academic report generation and factual integrity controls
 """
@@ -127,9 +132,9 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# ================================================================================
+# ==============================================
 # CONFIGURATION & CONSTANTS
-# ================================================================================
+# ==============================================
 
 MODEL_PRIMARY = "claude-sonnet-4-20250514"
 MODEL_FALLBACK = "claude-haiku-3-5-20241022"
@@ -144,9 +149,10 @@ FORBIDDEN_GENERIC_TERMS = [
     'comprehensive', 'holistic', 'groundbreaking', 'revolutionary'
 ]
 
-# ================================================================================
-# ENHANCED CLAIM VERIFICATION SYSTEM (STRICT MODE)
-# ================================================================================
+# ==============================================
+# ENHANCED CLAIM VERIFICATION SYSTEM 
+# (STRICT MODE)
+# ==============================================
 
 class StrictClaimVerifier:
     """Strict verification with zero tolerance for unsupported quantitative claims"""
@@ -434,9 +440,9 @@ class StrictClaimVerifier:
         
         return violations
 
-# ================================================================================
+# ==============================================
 # FIXED SOURCE AUTHORITY CLASSIFICATION
-# ================================================================================
+# ==============================================
 
 def get_authority_tier_fixed(venue: str, url: str) -> str:
     """Fixed authority tier detection - conferences correctly identified"""
@@ -606,9 +612,9 @@ def deduplicate_and_rank_sources_strict(sources: List[Dict]) -> List[Dict]:
     return ranked
 
 
-# ================================================================================
+# ==============================================
 # TECHNICAL SPECIFICATION EXTRACTION
-# ================================================================================
+# ==============================================
 
 def extract_technical_specifications(text: str) -> Dict[str, List[str]]:
     """Extract specific technical details for prompt enrichment"""
@@ -683,9 +689,9 @@ def aggregate_technical_specs(sources: List[Dict]) -> Dict[str, List[str]]:
     
     return {k: sorted(list(v)) for k, v in all_specs.items()}
 
-# ================================================================================
+# ==============================================
 # CITATION COVERAGE ENFORCEMENT
-# ================================================================================
+# ==============================================
 
 def enforce_source_coverage(draft: Dict, sources: List[Dict], min_coverage: float = 0.6) -> Dict:
     """Ensure minimum percentage of sources are cited"""
@@ -727,9 +733,9 @@ def enforce_source_coverage(draft: Dict, sources: List[Dict], min_coverage: floa
                     if coverage < min_coverage else "Coverage target met.")
     }
 
-# ================================================================================
+# ==============================================
 # ORIGINAL UTILITY FUNCTIONS (Preserved)
-# ================================================================================
+# ==============================================
 
 def get_secret_or_empty(key_name):
     """Safely retrieve a secret from Streamlit secrets, return empty string if not found."""
@@ -1032,9 +1038,9 @@ def get_available_engines(key_status):
     
     return available
 
-# ================================================================================
+# ==============================================
 # REPORT GENERATION FUNCTIONS
-# ================================================================================
+# ==============================================
 
 def update_report_progress(stage: str, detail: str, percent: int):
     """Update report generation progress"""
@@ -1294,9 +1300,9 @@ Return ONLY JSON:
         "evaluationFrameworks": []
     }
 
-# ================================================================================
+# ==============================================
 # ENHANCED DRAFT GENERATION WITH STRICT CONTROLS
-# ================================================================================
+# ==============================================
 
 def add_temporal_context(prompt: str, sources: List[Dict]) -> str:
     """Add temporal context based on source publication dates"""
@@ -1637,9 +1643,9 @@ Return corrected JSON."""
     
     return draft, verification_report
 
-# ================================================================================
+# ==============================================
 # CITATION FORMATTING AND HTML GENERATION
-# ================================================================================
+# ==============================================
 
 def format_authors_ieee(authors_str: str) -> str:
     """Format multiple authors for IEEE style"""
@@ -2010,9 +2016,9 @@ def generate_html_report_strict(
     
     return html
 
-# ================================================================================
+# ==============================================
 # SEARCH TAB FUNCTIONS
-# ================================================================================
+# ==============================================
 
 def display_results_preview(results, limit=5):
     """Display a preview of the top results"""
@@ -2089,9 +2095,9 @@ def create_download_buttons(output_dir):
                 width='stretch'
             )
 
-# ================================================================================
+# ==============================================
 # ENHANCED PIPELINE EXECUTION
-# ================================================================================
+# ==============================================
 
 def execute_report_pipeline():
     """Execute complete report generation pipeline with critical fixes integrated"""
@@ -2327,9 +2333,9 @@ def reset_report_system():
         'phrase_variations': []
     }
 
-# ================================================================================
+# ==============================================
 # MAIN APPLICATION
-# ================================================================================
+# ==============================================
 
 def main():
     # Initialize session state
