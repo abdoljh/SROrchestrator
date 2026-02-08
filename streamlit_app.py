@@ -148,6 +148,7 @@ FORBIDDEN_GENERIC_TERMS = [
     'powerful', 'robust', 'seamless', 'efficient', 'effective',
     'comprehensive', 'holistic', 'groundbreaking', 'revolutionary'
 ]
+NSOURCES = 20
 
 # ==============================================
 # ENHANCED CLAIM VERIFICATION SYSTEM 
@@ -1405,7 +1406,7 @@ EXAMPLES OF VIOLATIONS:
 ✅ "71.8% on ScholarQABench" (exact from source)
     
 FORBIDDEN WORDS (without specific metrics):
-{', '.join(FORBIDDEN_GENERIC_TERMS[:10])}
+{', '.join(FORBIDDEN_GENERIC_TERMS[:NSOURCES])}
 Replace with exact specifications or remove.
 
 MANDATORY SPECIFICITY:
@@ -1582,7 +1583,7 @@ REMINDER: Every claim needs [X] citation. Every number needs source support. Gen
         correction_prompt = f"""
 CRITICAL ISSUES FOUND - MUST FIX:
 
-{chr(10).join([f"- {v['type']}: {v.get('issue', '')}" for v in verification.get('violations', [])[:10]])}
+{chr(10).join([f"- {v['type']}: {v.get('issue', '')}" for v in verification.get('violations', [])[:NSOURCES]])}
 
 COVERAGE ISSUE: {coverage_check['message'] if 'message' in coverage_check else 'Insufficient source coverage'}
 
@@ -2001,7 +2002,7 @@ def generate_html_report_strict(
     # Show violations if any
     if ver.get('violations'):
         html += '<p style="margin-top: 1rem;"><strong>Issues Flagged:</strong></p>'
-        for v in ver['violations'][:10]:
+        for v in ver['violations'][:NSOURCES]:
             html += f'<div class="violation">[{v.get("type", "unknown")}] {v.get("suggestion", v.get("issue", ""))}</div>'
     
     html += """
@@ -2222,12 +2223,12 @@ def execute_report_pipeline():
         
         if fix_metadata['original_count'] != fix_metadata['filtered_count']:
             with st.expander(f"View {fix_metadata['original_count'] - fix_metadata['filtered_count']} filtered sources"):
-                for reason in fix_metadata.get('rejection_reasons', [])[:10]:
+                for reason in fix_metadata.get('rejection_reasons', [])[:NSOURCES]:
                     st.caption(f"• {reason}")
         
         if len(sources) < 5:
             st.warning(f"Only {len(sources)} sources after filtering. Using top 10 unfiltered.")
-            sources = sources_to_filter[:10]
+            sources = sources_to_filter[:NSOURCES]
         
         # Stage 4: TEMPORAL NORMALIZATION
         st.info("📅 Stage 4/6: Normalizing publication dates...")
@@ -3062,7 +3063,7 @@ def main():
                         f"📚 Academic Sources Found ({len(st.session_state.report_research['sources'])})",
                         expanded=True
                     ):
-                        for i, s in enumerate(st.session_state.report_research['sources'][:10], 1):
+                        for i, s in enumerate(st.session_state.report_research['sources'][:NSOURCES], 1):
                             meta = s.get('metadata', {})
                             tier = s.get('authority_tier', 'unknown')
                             tier_emoji = {
