@@ -124,15 +124,6 @@ class SourceQualityFilter:
         # Detect domain from topic
         domain = cls.detect_domain(topic)
 
-        # Add explicit rejection for ancient/archaeological studies in medical topics:
-#        if domain == 'medical':
-#            ancient_terms = ['bronze age', 'ancient', 'paleopathological', 'archaeological', 'mummy']
-#            if any(term in combined for term in ancient_terms):
-                 #Only allow if specific disease name appears in title
-#                if not any(disease_term in title for disease_term in topic.lower().split()[:3]):
-#                    rejections.append(f"[{i}] Ancient study not specific to {topic}: {title[:50]}...")
-                    #continue
-        
         domain_keywords = cls.DOMAIN_INDICATORS.get(domain, cls.DOMAIN_INDICATORS['general'])
         
         # Extract topic terms (words > 3 characters)
@@ -193,7 +184,7 @@ class SourceQualityFilter:
                                      'archaeological', 'mummy', 'skeletal remains']
                 if any(ind in combined for ind in ancient_indicators):
                     # Only allow if explicitly about the specific disease
-                    if not any(term in combined for term in topic_terms[:2]):
+                    if not any(term in title for term in topic_terms[:2]):
                         rejections.append(f"[{i}] Ancient/historical study not specific to topic: {title[:50]}...")
                         continue
             
