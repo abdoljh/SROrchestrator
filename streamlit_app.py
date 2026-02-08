@@ -2122,10 +2122,19 @@ def execute_report_pipeline():
         st.info("🔬 Stage 2/6: Retrieving academic sources...")
         update_report_progress('Research', 'Searching databases...', 25)
         
+        # Initialize report_research if not exists
+        if 'report_research' not in st.session_state:
+            st.session_state.report_research = {}
+        
         reuse_existing = False
+        raw_sources = []  # Will hold sources before filtering
+        
+        # Check for existing search results
         if 'results' in st.session_state and st.session_state.get('search_query'):
             existing_query = st.session_state.get('search_query', '').lower()
-            if topic.lower() in existing_query or subject.lower() in existing_query:
+            current_topic = topic.lower()
+            # Check if existing results match current topic
+            if any(term in existing_query for term in current_topic.split()[:3]):
                 st.info(f"✅ Reusing existing search results: '{st.session_state.get('search_query')}'")
                 results = st.session_state['results']
                 reuse_existing = True
@@ -2145,7 +2154,7 @@ def execute_report_pipeline():
                 'recency_multiplier': 1.2
             }
             
-            # Set API keys in environment
+            # Set API keys
             for key, value in api_keys.items():
                 if key != 'email' and value and len(value) > 5:
                     os.environ[f"{key.upper()}_API_KEY"] = value
@@ -2161,16 +2170,31 @@ def execute_report_pipeline():
             if not results:
                 raise Exception("No results found from academic databases")
             
+            # Store results in session for potential reuse
+            st.session_state['results'] = results
+            st.session_state['search_query'] = search_query
+            
             update_report_progress('Research', f'Found {len(results)} papers', 50)
+        
+        # CRITICAL: Convert results to source format and store
+        raw_sources = convert_orchestrator_to_source_format(results)
+        
+        # Store in report_research for Stage 3 access
+        st.session_state.report_research['sources'] = raw_sources
+        st.session_state.report_research['raw_results'] = results
         
         # Stage 3: QUALITY FILTERING (CRITICAL FIX)
         st.info("🛡️ Stage 3/6: Filtering low-quality sources...")
         update_report_progress('Filtering', 'Removing irrelevant sources...', 55)
         
-        raw_sources = convert_orchestrator_to_source_format(results)
+        # Now retrieve from session (guaranteed to exist)
+        sources_to_filter = st.session_state.report_research.get('sources', [])
+        
+        if not sources_to_filter:
+            raise Exception(f"No sources available for filtering. Raw sources count: {len(raw_sources)}")
         
         # Apply critical fixes pipeline
-        sources, fix_metadata = integrate_fixes_into_pipeline(raw_sources, topic)
+        sources, fix_metadata = integrate_fixes_into_pipeline(sources_to_filter, topic)
         
         # Show filtering results to user
         col1, col2, col3 = st.columns(3)
@@ -2181,6 +2205,15 @@ def execute_report_pipeline():
         with col3:
             st.metric("Year Corrections", fix_metadata.get('year_corrections', 0))
         
+        # Show domain detection
+        domain_display = {
+            'medical': '🏥 Medical',
+            'computer_science': '💻 Computer Science',
+            'general': '📚 General'
+        }.get(fix_metadata.get('domain', 'general'), '📚 General')
+        
+        st.info(f"Domain detected: {domain_display}")
+        
         if fix_metadata['original_count'] != fix_metadata['filtered_count']:
             with st.expander(f"View {fix_metadata['original_count'] - fix_metadata['filtered_count']} filtered sources"):
                 for reason in fix_metadata.get('rejection_reasons', [])[:10]:
@@ -2188,9 +2221,9 @@ def execute_report_pipeline():
         
         if len(sources) < 5:
             st.warning(f"Only {len(sources)} sources after filtering. Using top 10 unfiltered.")
-            sources = raw_sources[:10]
+            sources = sources_to_filter[:10]
         
-        # Stage 4: TEMPORAL NORMALIZATION (already applied in pipeline, show results)
+        # Stage 4: TEMPORAL NORMALIZATION
         st.info("📅 Stage 4/6: Normalizing publication dates...")
         update_report_progress('Normalization', 'Correcting years from DOI data...', 60)
         
@@ -2199,7 +2232,9 @@ def execute_report_pipeline():
         tier_display = ", ".join([f"{k.replace('_', ' ')}: {v}" for k, v in tier_counts.items()])
         st.info(f"📚 Authority distribution: {tier_display}")
         
+        # Update session with cleaned sources
         st.session_state.report_research['sources'] = sources
+        st.session_state.report_research['filter_metadata'] = fix_metadata
         
         # Stage 5: SOURCE-BOUNDED DRAFT GENERATION
         st.info("✍️ Stage 5/6: Writing with strict source boundaries...")
