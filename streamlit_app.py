@@ -1841,10 +1841,10 @@ def generate_html_report_strict(
             page-break-inside: avoid;
         }}
         .cover-logo {{
-            margin-bottom: 2.0cm;
+            margin-bottom: 1.5cm;
         }}
         .cover-logo img {{
-            height: 65px;
+            height: 100px;
         }}
         .cover h1 {{
             font-size: 22pt;
@@ -1865,8 +1865,8 @@ def generate_html_report_strict(
             margin-top: 2cm;
         }}
         .cover .meta-footer {{
-            font-size: 9pt;
-            margin-top: 1cm;
+            font-size: 12pt;
+            margin-top: 3cm;
             color: #555;
         }}
         h1 {{
