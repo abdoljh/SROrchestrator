@@ -1824,8 +1824,7 @@ def generate_html_report_strict(
     <meta charset="utf-8">
     <title>{form_data['topic']} - Technical Report</title>
     <style>
-        @page {{ size: A4; margin: 2cm 1cm 2cm 2cm; }}
-        @page :first {{ margin-top: 1cm; }}
+        @page {{ size: A4; margin: 1cm 1cm 2cm 2cm; }}
         body {{
             font-family: 'Times New Roman', serif;
             font-size: 12pt;
@@ -1833,15 +1832,11 @@ def generate_html_report_strict(
             color: #000;
             max-width: 180mm;
             margin: 0 auto;
-            padding: 2cm 1cm 2cm 2cm;
-        }}
-        @media print {{
-            body {{ padding: 0; margin: 0; max-width: none; }}
+            padding: 1cm 1cm 2cm 2cm;
         }}
         .cover {{
             text-align: center;
             padding-top: 0;
-            margin-top: -1cm;
             page-break-after: always;
             page-break-inside: avoid;
         }}
