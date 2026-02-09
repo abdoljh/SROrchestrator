@@ -14,6 +14,7 @@ import os
 import sys
 import json
 import shutil
+import base64
 import pandas as pd
 import time
 import requests
@@ -34,7 +35,6 @@ from srorch_critical_fixes import (
     create_source_boundary_prompt,
     AlignedClaimVerifier,
     integrate_fixes_into_pipeline,
-    SourceQualityFilter
 )
 
 # Page configuration
@@ -1791,7 +1791,18 @@ def generate_html_report_strict(
         report_date = datetime.now().strftime('%B %d, %Y')
     
     style = form_data.get('citation_style', 'IEEE')
-    
+
+    # Load logo from file (prefer SVG, fallback to JPG)
+    logo_html = ''
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    for logo_name, mime in [('logo.svg', 'image/svg+xml'), ('logo.jpg', 'image/jpeg')]:
+        logo_path = os.path.join(script_dir, logo_name)
+        if os.path.isfile(logo_path):
+            with open(logo_path, 'rb') as f:
+                logo_b64 = base64.b64encode(f.read()).decode('utf-8')
+            logo_html = f'<img src="data:{mime};base64,{logo_b64}" alt="SROrch" style="height: 65px;">'
+            break
+
     # Extract cited references and create renumbering map
     cited, contexts = extract_cited_references_enhanced(refined_draft)
     cited_refs_sorted = sorted(cited)
@@ -1825,12 +1836,15 @@ def generate_html_report_strict(
         }}
         .cover {{
             text-align: center;
-            padding-top: 1.5cm;
+            padding-top: 1cm;
             page-break-after: always;
             page-break-inside: avoid;
         }}
         .cover-logo {{
             margin-bottom: 1.5cm;
+        }}
+        .cover-logo img {{
+            height: 65px;
         }}
         .cover h1 {{
             font-size: 22pt;
@@ -1925,12 +1939,7 @@ def generate_html_report_strict(
 <body>
     <div class="cover">
         <div class="cover-logo">
-            <svg width="200" height="65" viewBox="0 0 200 65" xmlns="http://www.w3.org/2000/svg">
-                <rect x="0" y="0" width="200" height="65" rx="8" fill="#1a1a2e"/>
-                <circle cx="42" cy="30" r="13" stroke="#4a90d9" stroke-width="2.5" fill="none"/>
-                <line x1="52" y1="40" x2="62" y2="50" stroke="#4a90d9" stroke-width="2.5" stroke-linecap="round"/>
-                <text x="130" y="38" text-anchor="middle" font-family="Georgia, serif" font-size="26" font-weight="bold" fill="#e8e8e8">SROrch</text>
-            </svg>
+            {logo_html}
         </div>
         <h1>{form_data['topic']}</h1>
         <div class="meta meta-subtitle">Technical Research Report</div>
