@@ -1846,7 +1846,7 @@ def generate_html_report_strict(
             page-break-inside: avoid;
         }}
         .cover-logo {{
-            margin-bottom: 1.5cm;
+            margin-bottom: 2.0cm;
         }}
         .cover-logo img {{
             height: 65px;
