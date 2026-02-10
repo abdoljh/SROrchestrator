@@ -1800,7 +1800,7 @@ def generate_html_report_strict(
         if os.path.isfile(logo_path):
             with open(logo_path, 'rb') as f:
                 logo_b64 = base64.b64encode(f.read()).decode('utf-8')
-            logo_html = f'<img src="data:{mime};base64,{logo_b64}" alt="SROrch" style="height: 65px;">'
+            logo_html = f'<img src="data:{mime};base64,{logo_b64}" alt="SROrch" style="height: 200px;">'
             break
 
     # Extract cited references and create renumbering map
@@ -1844,7 +1844,7 @@ def generate_html_report_strict(
             margin-bottom: 1.5cm;
         }}
         .cover-logo img {{
-            height: 100px;
+            height: 200px;
         }}
         .cover h1 {{
             font-size: 22pt;
@@ -1866,7 +1866,7 @@ def generate_html_report_strict(
         }}
         .cover .meta-footer {{
             font-size: 12pt;
-            margin-top: 3cm;
+            margin-top: 8cm;
             color: #555;
         }}
         h1 {{
