@@ -1967,8 +1967,10 @@ def generate_html_report_strict(
             {form_data['subject']}</div>
         <div class="meta meta-prepared">
             Prepared by:<br>
+        </div>
         <div class="meta meta-author">
             {form_data['researcher']}<br>
+        </div>
 
          <div class="meta meta-institution">
            {form_data['institution']}<br>
