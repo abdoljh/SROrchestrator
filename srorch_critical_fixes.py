@@ -343,101 +343,35 @@ class AlignedClaimVerifier:
         self.metrics_cache = self._build_metrics_cache()
     
     def _build_metrics_cache(self) -> Dict:
-        """Pre-extract metrics from all sources."""
+        """Pre-extract metrics from all sources (widened field search)."""
         cache = {}
         for i, source in enumerate(self.sources, 1):
-            text = ' '.join([
-                str(source.get('metadata', {}).get('title', '')),
+            meta = source.get('metadata', {})
+            orch = source.get('_orchestrator_data', {})
+            text = ' '.join(filter(None, [
+                str(meta.get('title', '')),
                 str(source.get('content', '')),
-                str(source.get('_orchestrator_data', {}).get('abstract', '')),
-                str(source.get('_orchestrator_data', {}).get('tldr', ''))
-            ])
-            
+                str(meta.get('venue', '')),
+                str(meta.get('snippet', '')),
+                str(meta.get('description', '')),
+                str(orch.get('abstract', '')),
+                str(orch.get('tldr', '')),
+                str(orch.get('summary', '')),
+            ]))
+
+            raw_numbers = re.findall(r'\b(\d+(?:\.\d+)?)\b', text)
+            raw_pcts = re.findall(r'(\d+(?:\.\d+)?)%', text)
             cache[str(i)] = {
-                'numbers': re.findall(r'\b(\d+(?:\.\d+)?)\b', text),
-                'percentages': re.findall(r'(\d+(?:\.\d+)?)%', text),
+                'numbers': raw_numbers,
+                'percentages': raw_pcts,
+                'numbers_set': set(raw_numbers),
+                'percentages_set': set(raw_pcts),
                 'years': list(set(re.findall(r'\b(20[0-2]\d)\b', text))),
             }
         return cache
     
     def is_valid_citation(self, num: int) -> bool:
         return 1 <= num <= self.source_count
-    
-    def verify_draft(self, draft: Dict) -> Dict:
-        """Comprehensive verification."""
-        violations = []
-        cited = set()
-        
-        sections = {
-            'abstract': draft.get('abstract', ''),
-            'introduction': draft.get('introduction', ''),
-            'literatureReview': draft.get('literatureReview', ''),
-            'dataAnalysis': draft.get('dataAnalysis', ''),
-            'challenges': draft.get('challenges', ''),
-            'futureOutlook': draft.get('futureOutlook', ''),
-            'conclusion': draft.get('conclusion', '')
-        }
-        
-        for section_name, content in sections.items():
-            if not isinstance(content, str):
-                continue
-            
-            for match in re.finditer(r'\[(\d+)\]', content):
-                citation_num = match.group(1)
-                int_num = int(citation_num)
-                cited.add(int_num)
-                
-                # Check validity
-                if not self.is_valid_citation(int_num):
-                    violations.append({
-                        'type': 'invalid_citation',
-                        'severity': 'CRITICAL',
-                        'section': section_name,
-                        'citation': citation_num,
-                        'issue': f'Citation [{citation_num}] not found (max: {self.source_count})'
-                    })
-                    continue
-                
-                # Check numbers in context
-                context = content[max(0, match.start()-80):min(len(content), match.end()+80)]
-                numbers = re.findall(r'(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)\s*(?:%|percent)?', context)
-                source_data = self.metrics_cache.get(citation_num, {})
-                source_nums = source_data.get('numbers', []) + source_data.get('percentages', [])
-
-                for num in numbers:
-                    num_clean = num.replace(',', '')
-                    if num_clean not in source_nums and num not in source_nums and not self._is_acceptable(num_clean):
-                        violations.append({
-                            'type': 'unsupported_number',
-                            'severity': 'WARNING',
-                            'section': section_name,
-                            'citation': citation_num,
-                            'number': num,
-                            'issue': f'Number {num} not in source [{citation_num}]'
-                        })
-        
-        return {
-            'total_violations': len(violations),
-            'violations': violations,
-            'has_critical': any(v['severity'] == 'CRITICAL' for v in violations),
-            'coverage': len(cited) / self.source_count if self.source_count else 0,
-            'cited_count': len(cited),
-            'total_sources': self.source_count
-        }
-    
-    def _is_acceptable(self, num: str) -> bool:
-        """Check if number needs no source (years, small ints)."""
-        try:
-            n = float(num)
-            # Years 1950-2030 (publication years)
-            if 1950 <= n <= 2030:
-                return True
-            # Small structural numbers
-            if n <= 10:
-                return True
-            return False
-        except:
-            return False
 
     def _is_acceptable(self, num: str, context: str = "") -> bool:
         """Check if number needs no source verification."""
@@ -458,11 +392,34 @@ class AlignedClaimVerifier:
         except (ValueError, TypeError):
             return False
     
+    def _approx_match(self, num_clean: str, source_sets: Dict) -> bool:
+        """Check if number matches source data exactly or approximately (±1)."""
+        nums_set = source_sets.get('numbers_set', set())
+        pcts_set = source_sets.get('percentages_set', set())
+        all_set = nums_set | pcts_set
+        # Exact match
+        if num_clean in all_set:
+            return True
+        # Approximate match (±1) for values that could be rounded
+        try:
+            val = float(num_clean)
+            for candidate in all_set:
+                try:
+                    if abs(float(candidate) - val) <= 1:
+                        return True
+                except (ValueError, TypeError):
+                    continue
+        except (ValueError, TypeError):
+            pass
+        return False
+
     def verify_draft(self, draft: Dict) -> Dict:
-        """Comprehensive verification with context-aware exemptions."""
+        """Comprehensive verification with context-aware exemptions,
+        percent-aware extraction, and duplicate elimination."""
         violations = []
+        seen_flags = set()  # (citation, number_display) for deduplication
         cited = set()
-        
+
         sections = {
             'abstract': draft.get('abstract', ''),
             'introduction': draft.get('introduction', ''),
@@ -472,52 +429,68 @@ class AlignedClaimVerifier:
             'futureOutlook': draft.get('futureOutlook', ''),
             'conclusion': draft.get('conclusion', '')
         }
-        
+
         for section_name, content in sections.items():
             if not isinstance(content, str):
                 continue
-            
+
             for match in re.finditer(r'\[(\d+)\]', content):
                 citation_num = match.group(1)
                 int_num = int(citation_num)
                 cited.add(int_num)
-                
+
                 # Check validity
                 if not self.is_valid_citation(int_num):
-                    violations.append({
-                        'type': 'invalid_citation',
-                        'severity': 'CRITICAL',
-                        'section': section_name,
-                        'citation': citation_num,
-                        'issue': f'Citation [{citation_num}] not found (max: {self.source_count})'
-                    })
+                    flag_key = ('invalid', citation_num, citation_num)
+                    if flag_key not in seen_flags:
+                        seen_flags.add(flag_key)
+                        violations.append({
+                            'type': 'invalid_citation',
+                            'severity': 'CRITICAL',
+                            'section': section_name,
+                            'citation': citation_num,
+                            'issue': f'Citation [{citation_num}] not found (max: {self.source_count})'
+                        })
                     continue
-                
-                # Check numbers in context (with surrounding text for context)
+
+                # Extract numbers with their unit context (% preserved)
                 context_start = max(0, match.start() - 80)
                 context_end = min(len(content), match.end() + 80)
                 context = content[context_start:context_end]
-                
-                numbers = re.findall(r'(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)\s*(?:%|percent)?', context)
-                source_data = self.metrics_cache.get(citation_num, {})
-                source_nums = source_data.get('numbers', []) + source_data.get('percentages', [])
 
-                for num in numbers:
-                    num_clean = num.replace(',', '')
+                # Capture number AND optional percent sign as separate groups
+                num_matches = re.finditer(
+                    r'(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)\s*(%|percent)?',
+                    context
+                )
+                source_data = self.metrics_cache.get(citation_num, {})
+
+                for m in num_matches:
+                    num_raw = m.group(1)
+                    has_pct = m.group(2) is not None
+                    num_clean = num_raw.replace(',', '')
+                    display = f'{num_raw}%' if has_pct else num_raw
+
                     # Skip if acceptable (years, small ints)
                     if self._is_acceptable(num_clean, context):
                         continue
 
-                    if num_clean not in source_nums and num not in source_nums:
+                    # Deduplicate by (citation, display number)
+                    flag_key = ('number', citation_num, display)
+                    if flag_key in seen_flags:
+                        continue
+
+                    if not self._approx_match(num_clean, source_data):
+                        seen_flags.add(flag_key)
                         violations.append({
                             'type': 'unsupported_number',
                             'severity': 'WARNING',
                             'section': section_name,
                             'citation': citation_num,
-                            'number': num,
-                            'issue': f'Number {num} not in source [{citation_num}]'
+                            'number': display,
+                            'issue': f'Number {display} not verified in source [{citation_num}]'
                         })
-        
+
         return {
             'total_violations': len(violations),
             'violations': violations,
