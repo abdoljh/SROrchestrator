@@ -19,6 +19,7 @@ import pandas as pd
 import time
 import requests
 import re
+import math
 from datetime import datetime
 from pathlib import Path
 import zipfile
@@ -464,7 +465,9 @@ def get_authority_tier_fixed(venue: str, url: str) -> str:
     # Top-tier journals
     top_journal_indicators = [
         'nature', 'science', 'cell', 'lancet', 'nejm', 'jama',
-        'ieee transactions', 'acm transactions', 'journal of the'
+        'new england journal', 'blood', 'annals of',
+        'ieee transactions', 'acm transactions', 'journal of the',
+        'bmj', 'circulation', 'gastroenterology', 'hepatology'
     ]
     if any(ind in venue_lower for ind in top_journal_indicators):
         return 'top_tier_journal'
@@ -472,7 +475,9 @@ def get_authority_tier_fixed(venue: str, url: str) -> str:
     # Publisher journals
     publisher_indicators = [
         'ieee', 'acm', 'springer', 'elsevier', 'wiley', 'sage',
-        'taylor & francis', 'oxford university press', 'cambridge'
+        'taylor & francis', 'oxford university press', 'cambridge',
+        'plos', 'frontiers', 'mdpi', 'bmc', 'pediatric blood',
+        'european journal', 'american journal', 'british journal'
     ]
     if any(ind in venue_lower for ind in publisher_indicators):
         return 'publisher_journal'
@@ -602,16 +607,27 @@ def deduplicate_and_rank_sources_strict(sources: List[Dict]) -> List[Dict]:
             source['source_count'] = 1
             seen[key] = source
     
+    # Compute a composite score that balances recency and citations
+    current_year = datetime.now().year
+    for s in seen.values():
+        year = safe_int(s.get('metadata', {}).get('year', 0))
+        cites = safe_int(s.get('metadata', {}).get('citations', 0))
+        age = max(0, current_year - year) if year > 1900 else 30
+        # Recency score: 100 for this year, decays by 8 points per year
+        recency_score = max(0, 100 - age * 8)
+        # Citation score: logarithmic to prevent old highly-cited papers from dominating
+        citation_score = math.log1p(cites) * 5  # log(1+cites)*5 — e.g. 500 cites → ~31
+        s['_rank_score'] = recency_score + citation_score
+
     ranked = sorted(
         seen.values(),
         key=lambda x: (
             TIER_ORDER.get(x.get('authority_tier'), 5),
-            -safe_int(x.get('metadata', {}).get('year', 0)),
-            -safe_int(x.get('metadata', {}).get('citations', 0)),
+            -x.get('_rank_score', 0),
             -x.get('source_count', 1)
         )
     )
-    
+
     return ranked
 
 
@@ -2229,14 +2245,14 @@ def execute_report_pipeline():
             orchestrator_config = {
                 'abstract_limit': 10,
                 'high_consensus_threshold': 4,
-                'citation_weight': 1.5,
+                'citation_weight': 0.3,
                 'source_weight': 100,
                 'enable_alerts': True,
                 'enable_visualization': False,
                 'export_formats': ['csv', 'json'],
                 'recency_boost': True,
                 'recency_years': 5,
-                'recency_multiplier': 1.2
+                'recency_multiplier': 2.0
             }
             
             # Set API keys
