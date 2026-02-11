@@ -1800,7 +1800,7 @@ def generate_html_report_strict(
         if os.path.isfile(logo_path):
             with open(logo_path, 'rb') as f:
                 logo_b64 = base64.b64encode(f.read()).decode('utf-8')
-            logo_html = f'<img src="data:{mime};base64,{logo_b64}" alt="SROrch" style="height: 65px;">'
+            logo_html = f'<img src="data:{mime};base64,{logo_b64}" alt="SROrch" style="height: 200px;">'
             break
 
     # Extract cited references and create renumbering map
@@ -1908,7 +1908,10 @@ def generate_html_report_strict(
         }}
         .abstract {{
             font-style: italic;
-            margin: 0.25in 0.5in;
+            margin-top: 0.50cm;
+            margin-bottom: 0.50cm;
+            margin-left: 0.75cm;
+            margin-right: 0.25cm;
         }}
         .references {{
             page-break-before: always;
