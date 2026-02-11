@@ -531,7 +531,7 @@ class AlignedClaimVerifier:
 # INTEGRATION HELPERS
 # ==============================================
 
-def integrate_fixes_into_pipeline(raw_sources: List[Dict], topic: str) -> Tuple[List[Dict], Dict]:
+def integrate_fixes_into_pipeline(raw_sources: List[Dict], topic: str, max_sources: int = 25) -> Tuple[List[Dict], Dict]:
     """
     Apply all fixes to source list. Returns (cleaned_sources, metadata).
     """
@@ -539,16 +539,16 @@ def integrate_fixes_into_pipeline(raw_sources: List[Dict], topic: str) -> Tuple[
         'original_count': len(raw_sources),
         'domain': SourceQualityFilter.detect_domain(topic)
     }
-    
+
     # Fix 1: Quality filtering with domain awareness
     filtered, rejections = SourceQualityFilter.filter_sources(raw_sources, topic)
     metadata['filtered_count'] = len(filtered)
     metadata['rejection_reasons'] = rejections[:10]
     metadata['domain'] = SourceQualityFilter.detect_domain(topic)
-    
+
     # Fallback if too aggressive
     if len(filtered) < 5:
-        filtered = raw_sources[:10]
+        filtered = raw_sources[:max_sources]
         metadata['fallback_used'] = True
     
     # Fix 2: Year normalization

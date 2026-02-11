@@ -2279,7 +2279,10 @@ def execute_report_pipeline():
             raise Exception(f"No sources available for filtering. Raw sources count: {len(raw_sources)}")
         
         # Apply critical fixes pipeline
-        sources, fix_metadata = integrate_fixes_into_pipeline(sources_to_filter, topic)
+        sources, fix_metadata = integrate_fixes_into_pipeline(sources_to_filter, topic, max_sources)
+
+        # Deduplicate and rank sources by authority/recency/citations
+        sources = deduplicate_and_rank_sources_strict(sources)
         
         # Show filtering results to user
         col1, col2, col3 = st.columns(3)
@@ -2305,8 +2308,8 @@ def execute_report_pipeline():
                     st.caption(f"• {reason}")
         
         if len(sources) < 5:
-            st.warning(f"Only {len(sources)} sources after filtering. Using top 10 unfiltered.")
-            sources = sources_to_filter[:NSOURCES]
+            st.warning(f"Only {len(sources)} sources after filtering. Using top {max_sources} unfiltered.")
+            sources = sources_to_filter[:max_sources]
         
         # Stage 4: TEMPORAL NORMALIZATION
         st.info("📅 Stage 4/6: Normalizing publication dates...")
