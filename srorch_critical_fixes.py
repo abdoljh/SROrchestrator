@@ -458,10 +458,16 @@ class AlignedClaimVerifier:
                 context_end = min(len(content), match.end() + 80)
                 context = content[context_start:context_end]
 
-                # Capture number AND optional percent sign as separate groups
+                # Strip citation markers [N] so reference numbers aren't
+                # mistaken for data claims (e.g. [20] → "20")
+                context_clean = re.sub(r'\[\d+\]', '', context)
+
+                # Capture number AND optional percent sign as separate groups.
+                # Lookbehind/lookahead exclude digits embedded in alphanumeric
+                # tokens (e.g. V600E, CD1a, IL-17) to avoid false positives.
                 num_matches = re.finditer(
-                    r'(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)\s*(%|percent)?',
-                    context
+                    r'(?<![A-Za-z])(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)(?![A-Za-z])\s*(%|percent)?',
+                    context_clean
                 )
                 source_data = self.metrics_cache.get(citation_num, {})
 
