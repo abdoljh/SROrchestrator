@@ -1885,7 +1885,7 @@ def generate_html_report_strict(
        .cover .meta-footer {{
             font-size: 18pt;
             font-weight: lighter;
-            margin-top: 3cm;
+            margin-top: 2cm;
             color: green;
         }}
         h1 {{
