@@ -899,19 +899,11 @@ SOFTWARE.
 
 **Documentation:**
 - [GitHub Wiki](https://github.com/abdoljh/SROrchestrator/wiki)
-- [Video Tutorials](https://youtube.com/srorch-tutorials)
+- [Video Tutorials](Under Construction)
 - [FAQ](https://github.com/abdoljh/SROrchestrator/wiki/FAQ)
 
 **Community:**
 - [GitHub Discussions](https://github.com/abdoljh/SROrchestrator/discussions)
-- [Discord Server](https://discord.gg/srorch)
-- [Email Support](mailto:support@srorch.example.com)
-
-**Commercial Support:**
-- Enterprise deployment assistance
-- Custom integration development
-- Training workshops
-- Contact: enterprise@srorch.example.com
 
 ---
 
