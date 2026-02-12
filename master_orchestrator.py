@@ -101,7 +101,7 @@ class ResearchOrchestrator:
         for paper in all_papers:
             if 'venue' in paper:
                 paper['venue'] = self.normalize_venue(paper['venue'])
-            
+
             doi = str(paper.get('doi') or 'N/A').lower().strip()
             title = paper.get('title', '').lower().strip()
             clean_title = re.sub(r'[^a-zA-Z0-9]', '', title)
@@ -119,6 +119,24 @@ class ResearchOrchestrator:
                     unique_papers[key]['citations_int'] = cites
                     unique_papers[key]['citations'] = cites
 
+                # Merge impact_factor: keep the best non-null value
+                existing_if = unique_papers[key].get('impact_factor')
+                new_if = paper.get('impact_factor')
+                if new_if is not None and (existing_if is None or new_if > existing_if):
+                    unique_papers[key]['impact_factor'] = new_if
+
+                # Merge h_index: keep the best non-null value
+                existing_h = unique_papers[key].get('h_index')
+                new_h = paper.get('h_index')
+                if new_h is not None and (existing_h is None or new_h > existing_h):
+                    unique_papers[key]['h_index'] = new_h
+
+                # Merge influential_citations: keep the best non-null value
+                existing_ic = unique_papers[key].get('influential_citations')
+                new_ic = paper.get('influential_citations')
+                if new_ic is not None and (existing_ic is None or new_ic > existing_ic):
+                    unique_papers[key]['influential_citations'] = new_ic
+
                 if (self.config['enable_alerts'] and
                     unique_papers[key]['source_count'] == self.config['high_consensus_threshold']):
                     print(f"🚨 ALERT: High-Consensus Discovery! Found in {self.config['high_consensus_threshold']}+ engines: \"{paper['title'][:60]}...\"")
@@ -130,6 +148,24 @@ class ResearchOrchestrator:
         for p in unique_papers.values():
             base_score = (p['source_count'] * self.config['source_weight']) + \
                         (p['citations_int'] * self.config['citation_weight'])
+
+            # Impact factor boost (capped at 50 points)
+            paper_if = p.get('impact_factor')
+            if paper_if is not None:
+                try:
+                    if_boost = min(float(paper_if) * 2, 50)
+                    base_score += if_boost
+                except (ValueError, TypeError):
+                    pass
+
+            # H-index boost (capped at 25 points)
+            paper_h = p.get('h_index')
+            if paper_h is not None:
+                try:
+                    h_boost = min(int(paper_h) * 0.5, 25)
+                    base_score += h_boost
+                except (ValueError, TypeError):
+                    pass
 
             if self.config['recency_boost']:
                 try:
@@ -594,7 +630,8 @@ class ResearchOrchestrator:
         # 2. Save CSV
         csv_filename = os.path.join(self.output_dir, "MASTER_REPORT_FINAL.csv")
         keys = ['relevance_score', 'source_count', 'ieee_authors', 'title', 'venue', 'year',
-                'citations', 'doi', 'url', 'abstract', 'keywords', 'tldr', 'recency_boosted']
+                'citations', 'impact_factor', 'h_index', 'influential_citations',
+                'doi', 'url', 'abstract', 'keywords', 'tldr', 'recency_boosted']
 
         with open(csv_filename, 'w', newline='', encoding='utf-8') as f:
             writer = csv.DictWriter(f, fieldnames=keys)

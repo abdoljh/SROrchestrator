@@ -27,11 +27,11 @@ def fetch_and_process_papers(api_key, query, filters=None, save_csv=True, csv_li
     http = Session()
     http.mount('https://', HTTPAdapter(max_retries=Retry(total=5, backoff_factor=1)))
 
-    # Added 'citationCount' to the fields list
+    # Added 'citationCount' and 'influentialCitationCount' to the fields list
     params = {
-        'query': query, 
-        'fields': "paperId,title,year,authors,venue,url,citationCount", 
-        'limit': csv_limit 
+        'query': query,
+        'fields': "paperId,title,year,authors,venue,url,citationCount,influentialCitationCount,externalIds",
+        'limit': csv_limit
     }
     if filters:
         params.update(filters)
@@ -57,14 +57,22 @@ def fetch_and_process_papers(api_key, query, filters=None, save_csv=True, csv_li
             else:
                 display_authors = first_auth
 
+        # Extract DOI from externalIds if available
+        external_ids = paper.get('externalIds', {}) or {}
+        doi = external_ids.get('DOI', '') or ''
+
         processed_data.append({
             'sort_name': sort_key,
             'ieee_authors': display_authors,
             'title': paper.get('title', 'Untitled Document'),
             'venue': abbreviate_venue(paper.get('venue')),
             'year': paper.get('year', 'n.d.'),
-            'citations': paper.get('citationCount', 0), # Fallback to 0 if missing
-            'url': paper.get('url', '') 
+            'citations': paper.get('citationCount', 0),
+            'influential_citations': paper.get('influentialCitationCount', 0),
+            'doi': doi if doi else 'N/A',
+            'url': paper.get('url', ''),
+            'impact_factor': None,  # S2 does not provide journal IF
+            'h_index': None,        # S2 bulk search does not include author h-index
         })
 
     # Sorting alphabetically by author
@@ -74,8 +82,7 @@ def fetch_and_process_papers(api_key, query, filters=None, save_csv=True, csv_li
         clean_q = re.sub(r'[^\w\s-]', '', query).strip().replace(' ', '_')
         filename = f"s2_{clean_q}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
         with open(filename, 'w', newline='', encoding='utf-8') as f:
-            # Added 'citations' to CSV columns
-            writer = csv.DictWriter(f, fieldnames=['ieee_authors', 'title', 'venue', 'year', 'citations', 'url'])
+            writer = csv.DictWriter(f, fieldnames=['ieee_authors', 'title', 'venue', 'year', 'citations', 'influential_citations', 'doi', 'url', 'impact_factor', 'h_index'])
             writer.writeheader()
             for row in processed_data:
                 writer.writerow({k: v for k, v in row.items() if k != 'sort_name'})

@@ -38,6 +38,9 @@ from srorch_critical_fixes import (
     integrate_fixes_into_pipeline,
 )
 
+# LaTeX export
+from latex_export import generate_latex_report
+
 # Page configuration
 st.set_page_config(
     page_title="SROrch - Research Orchestrator & Reviewer",
@@ -1205,7 +1208,9 @@ def convert_orchestrator_to_source_format(papers: List[Dict]) -> List[Dict]:
             'venue': paper.get('venue', 'Unknown Venue'),
             'year': str(paper.get('year', 'n.d.')),
             'citations': paper.get('citations', 0),
-            'doi': paper.get('doi', 'N/A')
+            'doi': paper.get('doi', 'N/A'),
+            'impact_factor': paper.get('impact_factor'),
+            'h_index': paper.get('h_index'),
         }
         
         source = {
@@ -2389,7 +2394,37 @@ def execute_report_pipeline():
             max_sources=max_sources
         )
         st.session_state.report_html = html
-        
+
+        # Generate LaTeX if requested
+        export_fmt = st.session_state.report_form_data.get('export_format', 'HTML')
+        if export_fmt.startswith('LaTeX'):
+            template_map = {
+                'LaTeX (IEEE)': 'ieee',
+                'LaTeX (ACM)': 'acm',
+                'LaTeX (Springer)': 'springer',
+                'LaTeX (Elsevier)': 'elsevier',
+                'LaTeX (Plain)': 'plain',
+            }
+            latex_template = template_map.get(export_fmt, 'plain')
+            try:
+                latex_str, bibtex_str = generate_latex_report(
+                    refined,
+                    st.session_state.report_form_data,
+                    sources,
+                    verification_report,
+                    template=latex_template,
+                    max_sources=max_sources
+                )
+                st.session_state.report_latex = latex_str
+                st.session_state.report_bibtex = bibtex_str
+            except Exception as latex_err:
+                st.warning(f"LaTeX generation encountered an issue: {latex_err}. HTML report is still available.")
+                st.session_state.report_latex = None
+                st.session_state.report_bibtex = None
+        else:
+            st.session_state.report_latex = None
+            st.session_state.report_bibtex = None
+
         st.session_state.report_execution_time = time.time() - st.session_state.report_start_time
         
         update_report_progress("Complete", "Report generated successfully!", 100)
@@ -2420,6 +2455,8 @@ def reset_report_system():
     st.session_state.report_draft = None
     st.session_state.report_final = None
     st.session_state.report_html = None
+    st.session_state.report_latex = None
+    st.session_state.report_bibtex = None
     st.session_state.report_processing = False
     st.session_state.report_api_calls = 0
     st.session_state.report_start_time = None
@@ -3068,7 +3105,13 @@ def main():
                     )
                 with col4:
                     style = st.selectbox("Citation Style", ["IEEE", "APA"])
-                
+
+                export_format = st.selectbox(
+                    "Export Format",
+                    ["HTML", "LaTeX (IEEE)", "LaTeX (ACM)", "LaTeX (Springer)", "LaTeX (Elsevier)", "LaTeX (Plain)"],
+                    help="HTML produces a styled web document. LaTeX options generate a .tex file with matching .bib for academic submission."
+                )
+
                 # Source count control with cost warning
                 st.markdown("#### 📚 Source Configuration")
                 max_sources = st.slider(
@@ -3096,6 +3139,7 @@ def main():
                     'institution': institution,
                     'date': date.strftime('%Y-%m-%d'),
                     'citation_style': style,
+                    'export_format': export_format,
                     'max_sources': max_sources
                 })
                 
@@ -3241,14 +3285,15 @@ def main():
                 st.markdown("---")
                 
                 # Download
+                topic_slug = st.session_state.report_form_data['topic'].replace(' ', '_')
+
                 col1, col2 = st.columns(2)
                 with col1:
                     if st.session_state.report_html:
-                        filename = f"{st.session_state.report_form_data['topic'].replace(' ', '_')}_Strict_Report.html"
                         st.download_button(
                             "📥 Download Verified HTML Report",
                             data=st.session_state.report_html,
-                            file_name=filename,
+                            file_name=f"{topic_slug}_Strict_Report.html",
                             mime="text/html",
                             type="primary",
                             width='stretch'
@@ -3259,10 +3304,49 @@ def main():
                         2. Press Ctrl+P (Cmd+P on Mac)
                         3. Select "Save as PDF"
                         """)
-                
+
                 with col2:
                     st.metric("File Size", f"{len(st.session_state.report_html) / 1024:.1f} KB")
                     st.metric("Quality", "Verified Professional")
+
+                # LaTeX downloads (if generated)
+                if st.session_state.get('report_latex'):
+                    st.markdown("---")
+                    st.subheader("LaTeX Export")
+                    lcol1, lcol2, lcol3 = st.columns(3)
+                    with lcol1:
+                        st.download_button(
+                            "📄 Download LaTeX (.tex)",
+                            data=st.session_state.report_latex,
+                            file_name=f"{topic_slug}_Report.tex",
+                            mime="application/x-tex",
+                            width='stretch'
+                        )
+                    with lcol2:
+                        if st.session_state.get('report_bibtex'):
+                            st.download_button(
+                                "📚 Download BibTeX (.bib)",
+                                data=st.session_state.report_bibtex,
+                                file_name=f"{topic_slug}_refs.bib",
+                                mime="application/x-bibtex",
+                                width='stretch'
+                            )
+                    with lcol3:
+                        # ZIP bundle with both files
+                        import io, zipfile as zf
+                        zip_buffer = io.BytesIO()
+                        with zf.ZipFile(zip_buffer, 'w', zf.ZIP_DEFLATED) as z:
+                            z.writestr(f"{topic_slug}_Report.tex", st.session_state.report_latex)
+                            if st.session_state.get('report_bibtex'):
+                                z.writestr(f"{topic_slug}_refs.bib", st.session_state.report_bibtex)
+                        st.download_button(
+                            "📦 Download LaTeX Bundle (.zip)",
+                            data=zip_buffer.getvalue(),
+                            file_name=f"{topic_slug}_LaTeX.zip",
+                            mime="application/zip",
+                            width='stretch'
+                        )
+                    st.caption("Compile with: pdflatex → bibtex → pdflatex → pdflatex")
                 
                 st.markdown("---")
                 

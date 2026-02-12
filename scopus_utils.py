@@ -85,6 +85,18 @@ def fetch_and_process_scopus(api_key, query, max_limit=20, save_csv=True):
             # Format authors and get sort key
             ieee_authors, sort_key = format_scopus_authors(entry.get('dc:creator'))
 
+            # Extract SJR (Scimago Journal Rank) if available
+            sjr = None
+            sjr_raw = entry.get('prism:sjr') or entry.get('sjr')
+            if sjr_raw:
+                try:
+                    sjr = round(float(sjr_raw), 3)
+                except (ValueError, TypeError):
+                    pass
+
+            # Extract source-id for potential journal lookup
+            source_id = entry.get('source-id', '')
+
             processed_data.append({
                 'sort_name': sort_key,
                 'ieee_authors': ieee_authors,
@@ -93,7 +105,9 @@ def fetch_and_process_scopus(api_key, query, max_limit=20, save_csv=True):
                 'year': year,
                 'citations': int(entry.get('citedby-count', 0)),
                 'doi': doi or 'N/A',
-                'url': entry.get('link', [{}])[2].get('@href', '') # Usually the scopus link
+                'url': entry.get('link', [{}])[2].get('@href', ''),
+                'impact_factor': sjr,  # SJR as impact factor proxy
+                'h_index': None,       # Not available in Scopus search results
             })
             
         # Sort by Author Name
