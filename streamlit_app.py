@@ -1675,7 +1675,11 @@ def format_authors_ieee(authors_str: str) -> str:
     """Format multiple authors for IEEE style"""
     if not authors_str:
         return "Research Team"
-    
+
+    # Catch placeholder author strings that slipped through from engine parsers
+    if authors_str.strip().lower() in ('unknown author', 'unknown authors', 'unknown', ''):
+        return "Research Team"
+
     if 'et al' in authors_str.lower():
         return authors_str
     
@@ -1708,7 +1712,8 @@ def format_citation_with_tier(source: Dict, index: int, style: str = 'IEEE') -> 
     }
     
     if style == 'APA':
-        citation = f"{meta.get('authors', 'Unknown')} ({meta.get('year', 'n.d.')}). {meta.get('title', 'Untitled')}. <i>{meta.get('venue', 'Unknown')}</i>. {tier_labels.get(tier, '')}"
+        apa_authors = format_authors_ieee(meta.get('authors', 'Unknown'))
+        citation = f"{apa_authors} ({meta.get('year', 'n.d.')}). {meta.get('title', 'Untitled')}. <i>{meta.get('venue', 'Unknown')}</i>. {tier_labels.get(tier, '')}"
     else:  # IEEE
         authors = format_authors_ieee(meta.get('authors', 'Unknown'))
         citation = f'[{index}] {authors}, "{meta.get("title", "Untitled")}," {meta.get("venue", "Unknown")}, {meta.get("year", "n.d.")}. {tier_labels.get(tier, "")}'
