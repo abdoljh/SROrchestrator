@@ -1217,6 +1217,84 @@ def generate_phrase_variations(topic: str) -> List[str]:
         f"the {topic} field"
     ]
 
+_UNKNOWN_AUTHOR_VALUES = {'unknown author', 'unknown authors', 'unknown', 'research team', ''}
+
+def _is_unknown_author(authors_str):
+    """Check if author string is a placeholder."""
+    if not authors_str or not isinstance(authors_str, str):
+        return True
+    return authors_str.strip().lower() in _UNKNOWN_AUTHOR_VALUES
+
+def recover_unknown_authors(sources: List[Dict], s2_api_key: str = None) -> int:
+    """
+    For sources whose metadata['authors'] is unknown, attempt to recover
+    real author names via Semantic Scholar API (by DOI or title).
+    Mutates sources in place. Returns count of recovered authors.
+    """
+    import requests as _requests
+
+    headers = {"x-api-key": s2_api_key} if s2_api_key and len(str(s2_api_key)) > 5 else {}
+    recovered = 0
+
+    for source in sources:
+        meta = source.get('metadata', {})
+        authors = meta.get('authors', '')
+
+        if not _is_unknown_author(authors):
+            continue
+
+        # Also check _orchestrator_data in case authors were enriched there
+        orch = source.get('_orchestrator_data', {})
+        orch_authors = orch.get('ieee_authors', '')
+        if not _is_unknown_author(orch_authors):
+            meta['authors'] = orch_authors
+            recovered += 1
+            continue
+
+        # Try S2 API by DOI
+        doi = meta.get('doi', '')
+        title = meta.get('title', '')
+        fetched_authors = None
+
+        if doi and doi.upper() not in ('N/A', 'NA', 'UNKNOWN', 'NONE', ''):
+            clean_doi = doi.replace('https://doi.org/', '').replace('http://dx.doi.org/', '').strip()
+            if clean_doi:
+                try:
+                    url = f"https://api.semanticscholar.org/graph/v1/paper/DOI:{clean_doi}?fields=authors"
+                    r = _requests.get(url, headers=headers, timeout=8)
+                    if r.status_code == 200:
+                        data = r.json()
+                        if data.get('authors'):
+                            names = [a.get('name', '') for a in data['authors'] if a.get('name')]
+                            if names:
+                                fetched_authors = ', '.join(names[:3]) + (' et al.' if len(names) > 3 else '')
+                except:
+                    pass
+
+        # Fallback: try by title
+        if not fetched_authors and title and len(title) > 10:
+            try:
+                url = f"https://api.semanticscholar.org/graph/v1/paper/search?query={title[:200]}&limit=1&fields=authors"
+                r = _requests.get(url, headers=headers, timeout=8)
+                if r.status_code == 200:
+                    results_data = r.json().get('data', [])
+                    if results_data and results_data[0].get('authors'):
+                        names = [a.get('name', '') for a in results_data[0]['authors'] if a.get('name')]
+                        if names:
+                            fetched_authors = ', '.join(names[:3]) + (' et al.' if len(names) > 3 else '')
+            except:
+                pass
+
+        if fetched_authors:
+            meta['authors'] = fetched_authors
+            # Also update orchestrator data for consistency
+            if orch:
+                orch['ieee_authors'] = fetched_authors
+            recovered += 1
+
+    return recovered
+
+
 def convert_orchestrator_to_source_format(papers: List[Dict]) -> List[Dict]:
     """Convert ResearchOrchestrator output to report reviewer source format"""
     sources = []
@@ -2329,7 +2407,16 @@ def execute_report_pipeline():
 
         # Deduplicate and rank sources by authority/recency/citations
         sources = deduplicate_and_rank_sources_strict(sources)
-        
+
+        # Recover unknown authors via Semantic Scholar API
+        s2_key = api_keys.get('s2', os.getenv('S2_API_KEY', ''))
+        unknown_count = sum(1 for s in sources if _is_unknown_author(s.get('metadata', {}).get('authors', '')))
+        if unknown_count > 0:
+            update_report_progress('Filtering', f'Recovering authors for {unknown_count} sources...', 57)
+            author_recovered = recover_unknown_authors(sources, s2_key)
+            if author_recovered:
+                st.caption(f"Recovered authors for {author_recovered}/{unknown_count} sources via Semantic Scholar")
+
         # Show filtering results to user
         col1, col2, col3 = st.columns(3)
         with col1:
