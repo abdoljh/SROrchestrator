@@ -589,23 +589,43 @@ def deduplicate_and_rank_sources_strict(sources: List[Dict]) -> List[Dict]:
         if key in seen:
             existing = seen[key]
             existing['source_count'] = existing.get('source_count', 1) + 1
-            
+
             # Update to maximum citations
             existing_cites = safe_int(existing.get('metadata', {}).get('citations', 0))
             new_cites = safe_int(metadata.get('citations', 0))
             if new_cites > existing_cites:
                 existing['metadata']['citations'] = new_cites
-            
+
+            # Merge authors: prefer real names over "Unknown Author" placeholders
+            existing_authors = existing.get('metadata', {}).get('authors', '')
+            new_authors = metadata.get('authors', '')
+            _unknown = {'unknown author', 'unknown authors', 'unknown', 'research team', ''}
+            if (not existing_authors or existing_authors.strip().lower() in _unknown) and \
+               new_authors and new_authors.strip().lower() not in _unknown:
+                existing['metadata']['authors'] = new_authors
+
+            # Merge impact_factor and h_index: keep best non-null
+            for metric_key in ('impact_factor', 'h_index'):
+                existing_val = existing.get('metadata', {}).get(metric_key)
+                new_val = metadata.get(metric_key)
+                if new_val is not None and (existing_val is None or new_val > existing_val):
+                    existing['metadata'][metric_key] = new_val
+
             # Upgrade to better tier
             existing_tier_rank = TIER_ORDER.get(existing.get('authority_tier'), 5)
             new_tier_rank = TIER_ORDER.get(tier, 5)
-            
+
             if new_tier_rank < existing_tier_rank:
                 existing['authority_tier'] = tier
                 existing['metadata']['venue'] = venue
                 existing['url'] = url
                 if doi and not normalize_doi(existing['metadata'].get('doi', '')):
                     existing['metadata']['doi'] = metadata.get('doi', 'N/A')
+                # Also take authors from higher-tier source if current is unknown
+                if (not existing.get('metadata', {}).get('authors', '') or
+                    existing['metadata']['authors'].strip().lower() in _unknown) and \
+                   new_authors and new_authors.strip().lower() not in _unknown:
+                    existing['metadata']['authors'] = new_authors
         else:
             source['source_count'] = 1
             seen[key] = source
