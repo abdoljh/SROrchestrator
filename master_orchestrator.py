@@ -94,6 +94,14 @@ class ResearchOrchestrator:
             return ' '.join(str(v) for v in venue if v)
         return str(venue)
 
+    _UNKNOWN_AUTHOR_PATTERNS = {'unknown author', 'unknown authors', 'unknown', 'research team', ''}
+
+    def _is_unknown_author(self, authors_str):
+        """Check if an author string is a placeholder/unknown value."""
+        if not authors_str or not isinstance(authors_str, str):
+            return True
+        return authors_str.strip().lower() in self._UNKNOWN_AUTHOR_PATTERNS
+
     def deduplicate_and_score(self, all_papers):
         unique_papers = {}
         current_year = datetime.now().year
@@ -118,6 +126,12 @@ class ResearchOrchestrator:
                 if cites > unique_papers[key].get('citations_int', 0):
                     unique_papers[key]['citations_int'] = cites
                     unique_papers[key]['citations'] = cites
+
+                # Merge authors: prefer real names over "Unknown Author"
+                existing_authors = unique_papers[key].get('ieee_authors', '')
+                new_authors = paper.get('ieee_authors', '')
+                if self._is_unknown_author(existing_authors) and not self._is_unknown_author(new_authors):
+                    unique_papers[key]['ieee_authors'] = new_authors
 
                 # Merge impact_factor: keep the best non-null value
                 existing_if = unique_papers[key].get('impact_factor')
@@ -198,7 +212,7 @@ class ResearchOrchestrator:
 
             if doi and doi.lower() != 'n/a':
                 try:
-                    url = f"https://api.semanticscholar.org/graph/v1/paper/DOI:{doi}?fields=abstract,url,title,tldr,s2FieldsOfStudy,publicationTypes"
+                    url = f"https://api.semanticscholar.org/graph/v1/paper/DOI:{doi}?fields=abstract,authors,url,title,tldr,s2FieldsOfStudy,publicationTypes"
                     r = requests.get(url, headers=headers, timeout=12)
                     if r.status_code == 200:
                         data = r.json()
@@ -206,11 +220,16 @@ class ResearchOrchestrator:
                         if data.get('url'): paper['url'] = data.get('url')
                         if data.get('tldr'): paper['tldr'] = data.get('tldr', {}).get('text', '')
                         if data.get('fieldsOfStudy'): paper['keywords'] = ', '.join(data.get('fieldsOfStudy', []))
+                        # Enrich authors if current value is unknown
+                        if self._is_unknown_author(paper.get('ieee_authors', '')) and data.get('authors'):
+                            names = [a.get('name', '') for a in data['authors'] if a.get('name')]
+                            if names:
+                                paper['ieee_authors'] = ', '.join(names[:3]) + (' et al.' if len(names) > 3 else '')
                 except: pass
 
             if (not abstract or abstract == "Abstract not available.") and title:
                 try:
-                    search_url = f"https://api.semanticscholar.org/graph/v1/paper/search?query={title}&limit=1&fields=abstract,url,doi,tldr,fieldsOfStudy"
+                    search_url = f"https://api.semanticscholar.org/graph/v1/paper/search?query={title}&limit=1&fields=abstract,authors,url,doi,tldr,fieldsOfStudy"
                     r = requests.get(search_url, headers=headers, timeout=12)
                     if r.status_code == 200:
                         results_data = r.json().get('data', [])
@@ -220,6 +239,11 @@ class ResearchOrchestrator:
                             if results_data[0].get('doi'): paper['doi'] = results_data[0].get('doi')
                             if results_data[0].get('tldr'): paper['tldr'] = results_data[0].get('tldr', {}).get('text', '')
                             if results_data[0].get('fieldsOfStudy'): paper['keywords'] = ', '.join(results_data[0].get('fieldsOfStudy', []))
+                            # Enrich authors if current value is unknown
+                            if self._is_unknown_author(paper.get('ieee_authors', '')) and results_data[0].get('authors'):
+                                names = [a.get('name', '') for a in results_data[0]['authors'] if a.get('name')]
+                                if names:
+                                    paper['ieee_authors'] = ', '.join(names[:3]) + (' et al.' if len(names) > 3 else '')
                 except: pass
 
             paper['abstract'] = abstract
