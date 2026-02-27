@@ -1271,7 +1271,7 @@ def recover_unknown_authors(sources: List[Dict], s2_api_key: str = None) -> int:
                 except:
                     pass
 
-        # Fallback: try by title
+        # Fallback 2: try S2 by title
         if not fetched_authors and title and len(title) > 10:
             try:
                 url = f"https://api.semanticscholar.org/graph/v1/paper/search?query={title[:200]}&limit=1&fields=authors"
@@ -1284,6 +1284,10 @@ def recover_unknown_authors(sources: List[Dict], s2_api_key: str = None) -> int:
                             fetched_authors = ', '.join(names[:3]) + (' et al.' if len(names) > 3 else '')
             except:
                 pass
+
+        # Fallback 3: Crossref by DOI (free, no key needed, wide coverage)
+        if not fetched_authors and doi and doi.upper() not in ('N/A', 'NA', 'UNKNOWN', 'NONE', ''):
+            fetched_authors = _fetch_authors_from_crossref(doi)
 
         if fetched_authors:
             meta['authors'] = fetched_authors
@@ -1770,23 +1774,23 @@ Return corrected JSON."""
 # ==============================================
 
 def format_authors_ieee(authors_str: str) -> str:
-    """Format multiple authors for IEEE style"""
-    if not authors_str:
-        return "Research Team"
+    """Format multiple authors for IEEE style. Never fabricates author names."""
+    if not authors_str or not isinstance(authors_str, str):
+        return None
 
-    # Catch placeholder author strings that slipped through from engine parsers
-    if authors_str.strip().lower() in ('unknown author', 'unknown authors', 'unknown', ''):
-        return "Research Team"
+    stripped = authors_str.strip()
+    if stripped.lower() in ('unknown author', 'unknown authors', 'unknown', 'research team', ''):
+        return None
 
-    if 'et al' in authors_str.lower():
-        return authors_str
-    
-    authors = re.split(r',\s*|\s+and\s+', authors_str)
+    if 'et al' in stripped.lower():
+        return stripped
+
+    authors = re.split(r',\s*|\s+and\s+', stripped)
     authors = [a.strip() for a in authors if a.strip()]
-    
+
     if not authors:
-        return "Research Team"
-    
+        return None
+
     if len(authors) == 1:
         return authors[0]
     elif len(authors) == 2:
@@ -1794,13 +1798,76 @@ def format_authors_ieee(authors_str: str) -> str:
     else:
         return ', '.join(authors[:-1]) + ', and ' + authors[-1]
 
+
+def _fetch_authors_from_crossref(doi: str) -> str:
+    """Fetch author names from Crossref API using DOI. Free, no key needed."""
+    import requests as _req
+    if not doi or doi.upper() in ('N/A', 'NA', 'UNKNOWN', 'NONE', ''):
+        return None
+    clean_doi = doi.replace('https://doi.org/', '').replace('http://dx.doi.org/', '').strip()
+    if not clean_doi or len(clean_doi) < 5:
+        return None
+    try:
+        r = _req.get(f"https://api.crossref.org/works/{clean_doi}",
+                      headers={"Accept": "application/json"},
+                      timeout=6)
+        if r.status_code == 200:
+            authors_list = r.json().get('message', {}).get('author', [])
+            if authors_list:
+                names = []
+                for a in authors_list[:4]:
+                    given = a.get('given', '')
+                    family = a.get('family', '')
+                    if given and family:
+                        names.append(f"{given[0]}. {family}")
+                    elif family:
+                        names.append(family)
+                if names:
+                    result = ', '.join(names[:3])
+                    if len(authors_list) > 3:
+                        result += ' et al.'
+                    return result
+    except:
+        pass
+    return None
+
+
+def _recover_authors_for_source(source: Dict) -> str:
+    """Try every available avenue to find real authors for a source."""
+    meta = source.get('metadata', {})
+    orch = source.get('_orchestrator_data', {})
+
+    # 1. Check metadata['authors']
+    candidate = format_authors_ieee(meta.get('authors', ''))
+    if candidate:
+        return candidate
+
+    # 2. Check _orchestrator_data['ieee_authors']
+    candidate = format_authors_ieee(orch.get('ieee_authors', ''))
+    if candidate:
+        return candidate
+
+    # 3. Crossref lookup by DOI (free, no API key)
+    doi = meta.get('doi', '') or orch.get('doi', '')
+    candidate = _fetch_authors_from_crossref(doi)
+    if candidate:
+        # Cache back into metadata so we don't look up again
+        meta['authors'] = candidate
+        return candidate
+
+    return None
+
+
 def format_citation_with_tier(source: Dict, index: int, style: str = 'IEEE') -> str:
     """Format citation with correct tier badge, DOI, and URL"""
     meta = source.get('metadata', {})
     tier = source.get('authority_tier', 'unknown')
     url = source.get('url', '')
     doi = meta.get('doi', '')
-    
+
+    # Recover real authors — never use a placeholder
+    authors = _recover_authors_for_source(source)
+
     tier_labels = {
         'top_tier_journal': '[Nature/Science]',
         'publisher_journal': '[Journal]',
@@ -1808,13 +1875,13 @@ def format_citation_with_tier(source: Dict, index: int, style: str = 'IEEE') -> 
         'preprint': '[Preprint]',
         'other': '[Other]'
     }
-    
+
     if style == 'APA':
-        apa_authors = format_authors_ieee(meta.get('authors', 'Unknown'))
-        citation = f"{apa_authors} ({meta.get('year', 'n.d.')}). {meta.get('title', 'Untitled')}. <i>{meta.get('venue', 'Unknown')}</i>. {tier_labels.get(tier, '')}"
+        author_display = authors if authors else meta.get('authors', 'Unknown')
+        citation = f"{author_display} ({meta.get('year', 'n.d.')}). {meta.get('title', 'Untitled')}. <i>{meta.get('venue', 'Unknown')}</i>. {tier_labels.get(tier, '')}"
     else:  # IEEE
-        authors = format_authors_ieee(meta.get('authors', 'Unknown'))
-        citation = f'[{index}] {authors}, "{meta.get("title", "Untitled")}," {meta.get("venue", "Unknown")}, {meta.get("year", "n.d.")}. {tier_labels.get(tier, "")}'
+        author_display = authors if authors else meta.get('authors', 'Unknown')
+        citation = f'[{index}] {author_display}, "{meta.get("title", "Untitled")}," {meta.get("venue", "Unknown")}, {meta.get("year", "n.d.")}. {tier_labels.get(tier, "")}'
     
     # ✅ NEW: Add DOI if available (preferred for published papers)
     if doi and doi not in ('N/A', 'NA', 'Unknown', 'NONE', ''):
