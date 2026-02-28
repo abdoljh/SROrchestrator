@@ -2304,6 +2304,16 @@ def generate_html_report_strict(
 </body>
 </html>"""
     
+    # GLOBAL SANITIZATION: Remove ALL author placeholder strings from final HTML.
+    # This is the last line of defense — no placeholder can survive past this point.
+    _author_placeholders = [
+        'Unknown Author, ',   'Unknown Authors, ',  'Unknown, ',
+        'Research Team, ',    'Unknown Author ',     'Unknown Authors ',
+        'Unknown Author',     'Unknown Authors',     'Research Team',
+    ]
+    for placeholder in _author_placeholders:
+        html = html.replace(placeholder, '')
+
     return html
 
 # ==============================================
