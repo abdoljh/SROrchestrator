@@ -1495,8 +1495,15 @@ def generate_draft_strict(
             'other': '📃'
         }.get(tier, '📄')
         
+        # Get best known authors - check both metadata and orchestrator data
+        src_authors = format_authors_ieee(meta.get('authors', ''))
+        if not src_authors:
+            src_authors = format_authors_ieee(s.get('_orchestrator_data', {}).get('ieee_authors', ''))
+
+        author_line = f"Authors: {src_authors}" if src_authors else "Authors: (see DOI)"
+
         source_list.append(f"""[{i}] {tier_emoji} [{tier.upper()}] {meta.get('title', 'Unknown')} ({meta.get('year', 'N/A')})
-Authors: {meta.get('authors', 'Unknown')}
+{author_line}
 Venue: {meta.get('venue', 'Unknown')} | Citations: {meta.get('citations', 0)}
 Technical: {spec_summary if spec_summary else 'General content'}
 URL: {s['url'][:70]}""")
@@ -1859,13 +1866,15 @@ def _recover_authors_for_source(source: Dict) -> str:
 
 
 def format_citation_with_tier(source: Dict, index: int, style: str = 'IEEE') -> str:
-    """Format citation with correct tier badge, DOI, and URL"""
+    """Format citation with correct tier badge, DOI, and URL.
+    RULE: Only use verified author names. If no real authors can be found,
+    format the citation without an author field — never use placeholders."""
     meta = source.get('metadata', {})
     tier = source.get('authority_tier', 'unknown')
     url = source.get('url', '')
     doi = meta.get('doi', '')
 
-    # Recover real authors — never use a placeholder
+    # Recover real authors — returns None if no real names found
     authors = _recover_authors_for_source(source)
 
     tier_labels = {
@@ -1876,12 +1885,23 @@ def format_citation_with_tier(source: Dict, index: int, style: str = 'IEEE') -> 
         'other': '[Other]'
     }
 
-    if style == 'APA':
-        author_display = authors if authors else meta.get('authors', 'Unknown')
-        citation = f"{author_display} ({meta.get('year', 'n.d.')}). {meta.get('title', 'Untitled')}. <i>{meta.get('venue', 'Unknown')}</i>. {tier_labels.get(tier, '')}"
-    else:  # IEEE
-        author_display = authors if authors else meta.get('authors', 'Unknown')
-        citation = f'[{index}] {author_display}, "{meta.get("title", "Untitled")}," {meta.get("venue", "Unknown")}, {meta.get("year", "n.d.")}. {tier_labels.get(tier, "")}'
+    title = meta.get('title', 'Untitled')
+    venue = meta.get('venue', 'Unknown')
+    year = meta.get('year', 'n.d.')
+    tier_label = tier_labels.get(tier, '')
+
+    if authors:
+        # Normal citation with authors
+        if style == 'APA':
+            citation = f"{authors} ({year}). {title}. <i>{venue}</i>. {tier_label}"
+        else:
+            citation = f'[{index}] {authors}, "{title}," {venue}, {year}. {tier_label}'
+    else:
+        # No real authors found — omit author field entirely
+        if style == 'APA':
+            citation = f"({year}). {title}. <i>{venue}</i>. {tier_label}"
+        else:
+            citation = f'[{index}] "{title}," {venue}, {year}. {tier_label}'
     
     # ✅ NEW: Add DOI if available (preferred for published papers)
     if doi and doi not in ('N/A', 'NA', 'Unknown', 'NONE', ''):
