@@ -1223,7 +1223,15 @@ def _is_unknown_author(authors_str):
     """Check if author string is a placeholder."""
     if not authors_str or not isinstance(authors_str, str):
         return True
-    return authors_str.strip().lower() in _UNKNOWN_AUTHOR_VALUES
+    cleaned = authors_str.strip().lower()
+    if cleaned in _UNKNOWN_AUTHOR_VALUES:
+        return True
+    # Also catch "Unknown et al.", "Unknown Author et al.", etc.
+    if 'et al' in cleaned:
+        name_part = re.split(r'\s+et\s+al', cleaned)[0].strip().rstrip(',').strip()
+        if not name_part or name_part in _UNKNOWN_AUTHOR_VALUES:
+            return True
+    return False
 
 def recover_unknown_authors(sources: List[Dict], s2_api_key: str = None) -> int:
     """
@@ -1305,9 +1313,9 @@ def convert_orchestrator_to_source_format(papers: List[Dict]) -> List[Dict]:
     
     for paper in papers:
         metadata = {
-            'authors': paper.get('ieee_authors', 'Unknown Authors'),
+            'authors': paper.get('ieee_authors', ''),
             'title': paper.get('title', 'Untitled'),
-            'venue': paper.get('venue', 'Unknown Venue'),
+            'venue': paper.get('venue', ''),
             'year': str(paper.get('year', 'n.d.')),
             'citations': paper.get('citations', 0),
             'doi': paper.get('doi', 'N/A'),
@@ -1790,6 +1798,10 @@ def format_authors_ieee(authors_str: str) -> str:
         return None
 
     if 'et al' in stripped.lower():
+        # Extract the name before "et al" and check if it's a placeholder
+        name_before_etal = re.split(r'\s+et\s+al', stripped, flags=re.IGNORECASE)[0].strip().rstrip(',').strip()
+        if not name_before_etal or name_before_etal.lower() in ('unknown', 'unknown author', 'research team'):
+            return None
         return stripped
 
     authors = re.split(r',\s*|\s+and\s+', stripped)
@@ -1886,22 +1898,29 @@ def format_citation_with_tier(source: Dict, index: int, style: str = 'IEEE') -> 
     }
 
     title = meta.get('title', 'Untitled')
-    venue = meta.get('venue', 'Unknown')
+    raw_venue = meta.get('venue', '')
+    venue = raw_venue if raw_venue and raw_venue.lower() not in ('unknown', 'unknown venue', 'n/a') else ''
     year = meta.get('year', 'n.d.')
     tier_label = tier_labels.get(tier, '')
+
+    # Build venue+year segment
+    if venue:
+        venue_year = f"{venue}, {year}"
+    else:
+        venue_year = str(year)
 
     if authors:
         # Normal citation with authors
         if style == 'APA':
-            citation = f"{authors} ({year}). {title}. <i>{venue}</i>. {tier_label}"
+            citation = f"{authors} ({year}). {title}. <i>{venue}</i>. {tier_label}" if venue else f"{authors} ({year}). {title}. {tier_label}"
         else:
-            citation = f'[{index}] {authors}, "{title}," {venue}, {year}. {tier_label}'
+            citation = f'[{index}] {authors}, "{title}," {venue_year}. {tier_label}'
     else:
         # No real authors found — omit author field entirely
         if style == 'APA':
-            citation = f"({year}). {title}. <i>{venue}</i>. {tier_label}"
+            citation = f"({year}). {title}. <i>{venue}</i>. {tier_label}" if venue else f"({year}). {title}. {tier_label}"
         else:
-            citation = f'[{index}] "{title}," {venue}, {year}. {tier_label}'
+            citation = f'[{index}] "{title}," {venue_year}. {tier_label}'
     
     # ✅ NEW: Add DOI if available (preferred for published papers)
     if doi and doi not in ('N/A', 'NA', 'Unknown', 'NONE', ''):
@@ -2310,9 +2329,15 @@ def generate_html_report_strict(
         'Unknown Author, ',   'Unknown Authors, ',  'Unknown, ',
         'Research Team, ',    'Unknown Author ',     'Unknown Authors ',
         'Unknown Author',     'Unknown Authors',     'Research Team',
+        'Unknown et al., ',   'Unknown et al.',      'Unknown Author et al., ',
+        'Unknown Author et al.',
     ]
     for placeholder in _author_placeholders:
         html = html.replace(placeholder, '')
+    # Also replace "Unknown Venue" with empty venue indicator
+    html = html.replace(', Unknown Venue,', ',')
+    html = html.replace(', Unknown,', ',')
+    html = html.replace('Unknown Venue', '')
 
     return html
 
