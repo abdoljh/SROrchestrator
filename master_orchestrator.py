@@ -100,7 +100,15 @@ class ResearchOrchestrator:
         """Check if an author string is a placeholder/unknown value."""
         if not authors_str or not isinstance(authors_str, str):
             return True
-        return authors_str.strip().lower() in self._UNKNOWN_AUTHOR_PATTERNS
+        cleaned = authors_str.strip().lower()
+        if cleaned in self._UNKNOWN_AUTHOR_PATTERNS:
+            return True
+        # Catch "Unknown et al.", "Unknown Author et al.", etc.
+        if 'et al' in cleaned:
+            name_part = re.split(r'\s+et\s+al', cleaned)[0].strip().rstrip(',').strip()
+            if not name_part or name_part in self._UNKNOWN_AUTHOR_PATTERNS:
+                return True
+        return False
 
     def deduplicate_and_score(self, all_papers):
         unique_papers = {}
