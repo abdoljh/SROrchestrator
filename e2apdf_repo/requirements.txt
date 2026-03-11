@@ -1,0 +1,6 @@
+streamlit>=1.28.0
+pypdfium2>=4.0
+pypdf>=3.0
+reportlab>=4.0
+arabic-reshaper>=3.0
+python-bidi>=0.4
