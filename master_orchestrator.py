@@ -40,6 +40,10 @@ import sage_utils
 import gap_utils
 from gap_utils import analyze_research_gaps
 
+# Query / abstract helpers
+from query_utils import (safe_query_slug, clean_abstract, reconstruct_inverted_index,
+                         NO_ABSTRACT)
+
 load_dotenv()
 
 class ResearchOrchestrator:
@@ -65,8 +69,11 @@ class ResearchOrchestrator:
             'export_formats': ['csv', 'json', 'bibtex'],
             'recency_boost': True,
             'recency_years': 3,
-            'recency_multiplier': 1.5
+            'recency_multiplier': 1.5,
+            'enrich_abstracts': True,
         }
+        # Older/partial configs (e.g. from the Streamlit UI) get the default
+        self.config.setdefault('enrich_abstracts', True)
 
         self.session_metadata = {
             'start_time': None,
@@ -78,7 +85,9 @@ class ResearchOrchestrator:
         }
 
     def create_output_directory(self, query):
-        clean_q = re.sub(r'[^a-zA-Z0-9]', '_', query).strip('_')
+        # The query can be an arbitrarily long boolean expression; a raw slug of
+        # it can exceed the 255-byte filename limit ([Errno 36] File name too long).
+        clean_q = safe_query_slug(query)
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         self.output_dir = f"SROrch_{clean_q}_{timestamp}"
         if not os.path.exists(self.output_dir):
@@ -140,6 +149,19 @@ class ResearchOrchestrator:
                 new_authors = paper.get('ieee_authors', '')
                 if self._is_unknown_author(existing_authors) and not self._is_unknown_author(new_authors):
                     unique_papers[key]['ieee_authors'] = new_authors
+
+                # Merge abstracts: keep the most complete one
+                existing = unique_papers[key]
+                new_abs = clean_abstract(paper.get('abstract'))
+                if new_abs and len(new_abs) > len(clean_abstract(existing.get('abstract'))):
+                    existing['abstract'] = new_abs
+                    existing['abstract_source'] = paper.get('abstract_source', '')
+                for fld in ('snippet', 'tldr', 'keywords'):
+                    if paper.get(fld) and not existing.get(fld):
+                        existing[fld] = paper[fld]
+                if (not existing.get('doi') or str(existing.get('doi')).upper() == 'N/A') and \
+                        paper.get('doi') and str(paper['doi']).upper() != 'N/A':
+                    existing['doi'] = paper['doi']
 
                 # Merge impact_factor: keep the best non-null value
                 existing_if = unique_papers[key].get('impact_factor')
@@ -205,6 +227,101 @@ class ResearchOrchestrator:
 
         return sorted(unique_papers.values(), key=lambda x: x['relevance_score'], reverse=True)
 
+    @staticmethod
+    def _norm_doi(doi):
+        doi = str(doi or '').strip().lower()
+        for prefix in ('https://doi.org/', 'http://doi.org/', 'http://dx.doi.org/', 'doi:'):
+            if doi.startswith(prefix):
+                doi = doi[len(prefix):]
+        return '' if doi in ('', 'n/a', 'none') or not doi.startswith('10.') else doi
+
+    def enrich_missing_abstracts(self, papers, batch_size=50):
+        """
+        Fill in abstracts for papers whose engine did not return one, using
+        batched DOI look-ups (OpenAlex first, then Semantic Scholar). Only a
+        handful of HTTP requests are needed even for hundreds of papers.
+        Papers with no abstract anywhere fall back to the Google Scholar
+        snippet, clearly marked as such.
+        """
+        import requests
+
+        def missing():
+            out = {}
+            for p in papers:
+                if not clean_abstract(p.get('abstract')):
+                    d = self._norm_doi(p.get('doi'))
+                    if d:
+                        out.setdefault(d, []).append(p)
+            return out
+
+        def apply(doi, text, source):
+            text = clean_abstract(text)
+            if not text:
+                return 0
+            for p in todo.get(doi, []):
+                p['abstract'] = text
+                p['abstract_source'] = source
+            return 1
+
+        before = sum(1 for p in papers if clean_abstract(p.get('abstract')))
+        print(f"\n[Abstracts] {before}/{len(papers)} papers have abstracts from the search engines")
+
+        # 1. OpenAlex (free, no key): filter=doi:a|b|c
+        todo = missing()
+        dois = list(todo)
+        for i in range(0, len(dois), batch_size):
+            chunk = dois[i:i + batch_size]
+            try:
+                r = requests.get(
+                    "https://api.openalex.org/works",
+                    params={'filter': 'doi:' + '|'.join(chunk), 'per-page': batch_size,
+                            'select': 'doi,abstract_inverted_index',
+                            'mailto': self.api_keys.get('email') or ''},
+                    timeout=20)
+                if r.status_code == 200:
+                    for w in r.json().get('results', []):
+                        apply(self._norm_doi(w.get('doi')),
+                              reconstruct_inverted_index(w.get('abstract_inverted_index')), 'OpenAlex')
+            except Exception as e:
+                print(f"  ⚠️ OpenAlex abstract lookup failed: {e}")
+                break
+
+        # 2. Semantic Scholar batch endpoint (works with or without key)
+        todo = missing()
+        dois = list(todo)
+        headers = {"x-api-key": self.api_keys['s2']} if self.api_keys.get('s2') else {}
+        for i in range(0, len(dois), 100):
+            chunk = dois[i:i + 100]
+            try:
+                r = requests.post(
+                    "https://api.semanticscholar.org/graph/v1/paper/batch",
+                    params={'fields': 'externalIds,abstract,tldr'},
+                    json={'ids': [f"DOI:{d}" for d in chunk]},
+                    headers=headers, timeout=25)
+                if r.status_code != 200:
+                    break
+                for d, item in zip(chunk, r.json()):
+                    if not item:
+                        continue
+                    apply(d, item.get('abstract'), 'Semantic Scholar')
+                    tldr = (item.get('tldr') or {}).get('text')
+                    if tldr:
+                        for p in todo.get(d, []):
+                            p.setdefault('tldr', tldr)
+            except Exception as e:
+                print(f"  ⚠️ Semantic Scholar abstract lookup failed: {e}")
+                break
+
+        # 3. Last resort: Google Scholar snippet
+        for p in papers:
+            if not clean_abstract(p.get('abstract')) and p.get('snippet'):
+                p['abstract'] = f"[Snippet] {p['snippet']}"
+                p['abstract_source'] = 'Google Scholar (snippet)'
+
+        after = sum(1 for p in papers if clean_abstract(p.get('abstract')))
+        print(f"[Abstracts] {after}/{len(papers)} papers have abstracts after enrichment (+{after - before})")
+        return papers
+
     def fetch_abstracts_for_top_papers(self, top_papers, limit=None):
         limit = limit or self.config['abstract_limit']
         print(f"\n[AI] Performing 'Deep Look' for Top {limit} papers...")
@@ -214,17 +331,20 @@ class ResearchOrchestrator:
         headers = {"x-api-key": self.api_keys['s2']} if self.api_keys['s2'] else {}
 
         for i, paper in enumerate(top_papers[:limit]):
-            abstract = "Abstract not available."
+            # Keep the abstract the search engines (or enrichment) already found
+            abstract = clean_abstract(paper.get('abstract')) or NO_ABSTRACT
             doi = str(paper.get('doi', '')).strip()
             title = paper.get('title')
 
-            if doi and doi.lower() != 'n/a':
+            if abstract == NO_ABSTRACT and doi and doi.lower() != 'n/a':
                 try:
                     url = f"https://api.semanticscholar.org/graph/v1/paper/DOI:{doi}?fields=abstract,authors,url,title,tldr,s2FieldsOfStudy,publicationTypes"
                     r = requests.get(url, headers=headers, timeout=12)
                     if r.status_code == 200:
                         data = r.json()
-                        abstract = data.get('abstract') or abstract
+                        if clean_abstract(data.get('abstract')):
+                            abstract = clean_abstract(data.get('abstract'))
+                            paper['abstract_source'] = 'Semantic Scholar'
                         if data.get('url'): paper['url'] = data.get('url')
                         if data.get('tldr'): paper['tldr'] = data.get('tldr', {}).get('text', '')
                         if data.get('fieldsOfStudy'): paper['keywords'] = ', '.join(data.get('fieldsOfStudy', []))
@@ -235,16 +355,27 @@ class ResearchOrchestrator:
                                 paper['ieee_authors'] = ', '.join(names[:3]) + (' et al.' if len(names) > 3 else '')
                 except: pass
 
-            if (not abstract or abstract == "Abstract not available.") and title:
+            if abstract == NO_ABSTRACT and title:
                 try:
-                    search_url = f"https://api.semanticscholar.org/graph/v1/paper/search?query={title}&limit=1&fields=abstract,authors,url,doi,tldr,fieldsOfStudy"
-                    r = requests.get(search_url, headers=headers, timeout=12)
+                    r = requests.get(
+                        "https://api.semanticscholar.org/graph/v1/paper/search",
+                        params={'query': title[:300], 'limit': 1,
+                                'fields': 'abstract,authors,url,externalIds,tldr,fieldsOfStudy'},
+                        headers=headers, timeout=12)
                     if r.status_code == 200:
                         results_data = r.json().get('data', [])
                         if results_data:
-                            abstract = results_data[0].get('abstract') or abstract
+                            hit = results_data[0]
+                            # Only trust the hit if it is really the same paper
+                            same = re.sub(r'[^a-z0-9]', '', (hit.get('title') or '').lower()) == \
+                                   re.sub(r'[^a-z0-9]', '', title.lower())
+                            if same and clean_abstract(hit.get('abstract')):
+                                abstract = clean_abstract(hit.get('abstract'))
+                                paper['abstract_source'] = 'Semantic Scholar'
                             if results_data[0].get('url'): paper['url'] = results_data[0].get('url')
-                            if results_data[0].get('doi'): paper['doi'] = results_data[0].get('doi')
+                            hit_doi = (hit.get('externalIds') or {}).get('DOI')
+                            if same and hit_doi and str(paper.get('doi', 'N/A')).upper() == 'N/A':
+                                paper['doi'] = hit_doi
                             if results_data[0].get('tldr'): paper['tldr'] = results_data[0].get('tldr', {}).get('text', '')
                             if results_data[0].get('fieldsOfStudy'): paper['keywords'] = ', '.join(results_data[0].get('fieldsOfStudy', []))
                             # Enrich authors if current value is unknown
@@ -254,7 +385,9 @@ class ResearchOrchestrator:
                                     paper['ieee_authors'] = ', '.join(names[:3]) + (' et al.' if len(names) > 3 else '')
                 except: pass
 
-            paper['abstract'] = abstract
+            if abstract == NO_ABSTRACT and paper.get('snippet'):
+                abstract = f"[Snippet] {paper['snippet']}"
+            paper['abstract'] = '' if abstract == NO_ABSTRACT else abstract
 
             summary_block = (
                 f"RANK [{i+1}]\n"
@@ -271,7 +404,7 @@ class ResearchOrchestrator:
             if paper.get('keywords'):
                 summary_block += f"KEYWORDS: {paper['keywords']}\n"
 
-            summary_block += f"ABSTRACT: {paper['abstract']}\n{'-'*60}\n"
+            summary_block += f"ABSTRACT: {paper['abstract'] or NO_ABSTRACT}\n{'-'*60}\n"
             abstract_summaries.append(summary_block)
 
         return abstract_summaries
@@ -470,6 +603,10 @@ class ResearchOrchestrator:
                 try:
                     data = future.result()
                     if data:
+                        for p in data:
+                            p['abstract'] = clean_abstract(p.get('abstract'))
+                            if p['abstract']:
+                                p.setdefault('abstract_source', engine_name)
                         combined_results.extend(data)
                         self.session_metadata['successful_engines'].append(engine_name)
                         self.session_metadata['total_api_calls'] += 1
@@ -484,6 +621,12 @@ class ResearchOrchestrator:
                         self.session_metadata['failed_engines'].append(f"{engine_name} (error: {str(e)[:50]})")
 
         final_list = self.deduplicate_and_score(combined_results)
+
+        if self.config.get('enrich_abstracts', True):
+            try:
+                self.enrich_missing_abstracts(final_list)
+            except Exception as e:
+                print(f"⚠️ Abstract enrichment failed: {e}")
 
         for file in os.listdir('.'):
             if file.endswith(".csv") and not file.startswith("MASTER_"):
@@ -663,7 +806,7 @@ class ResearchOrchestrator:
         csv_filename = os.path.join(self.output_dir, "MASTER_REPORT_FINAL.csv")
         keys = ['relevance_score', 'source_count', 'ieee_authors', 'title', 'venue', 'year',
                 'citations', 'impact_factor', 'h_index', 'influential_citations',
-                'doi', 'url', 'abstract', 'keywords', 'tldr', 'recency_boosted']
+                'doi', 'url', 'abstract', 'abstract_source', 'keywords', 'tldr', 'recency_boosted']
 
         with open(csv_filename, 'w', newline='', encoding='utf-8') as f:
             writer = csv.DictWriter(f, fieldnames=keys)

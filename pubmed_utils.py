@@ -3,6 +3,7 @@ import csv
 import re
 from datetime import datetime
 from Bio import Entrez
+from query_utils import safe_query_slug, clean_abstract
 
 def abbreviate_venue(venue_name):
     if not venue_name: return "Unknown Journal"
@@ -72,6 +73,22 @@ def fetch_and_process_pubmed(query, max_limit=10, save_csv=True):
             if 'Year' in pub_date:
                 year = pub_date['Year']
             
+            # Abstract (structured abstracts have labelled sections)
+            abstract_parts = []
+            for part in article.get('Abstract', {}).get('AbstractText', []) or []:
+                label = getattr(part, 'attributes', {}).get('Label') if hasattr(part, 'attributes') else None
+                text = str(part).strip()
+                if text:
+                    abstract_parts.append(f"{label}: {text}" if label else text)
+            abstract = clean_abstract(' '.join(abstract_parts))
+
+            # DOI (used for cross-engine de-duplication)
+            doi = ''
+            for aid in article_data.get('PubmedData', {}).get('ArticleIdList', []) or []:
+                if getattr(aid, 'attributes', {}).get('IdType') == 'doi':
+                    doi = str(aid)
+                    break
+
             processed_data.append({
                 'sort_name': sort_key,
                 'ieee_authors': display_authors,
@@ -79,7 +96,9 @@ def fetch_and_process_pubmed(query, max_limit=10, save_csv=True):
                 'venue': abbreviate_venue(raw_venue),
                 'year': year,
                 'citations': "N/A", # PubMed API requires a separate link-out for citations
-                'url': f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
+                'doi': doi or 'N/A',
+                'url': f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/",
+                'abstract': abstract,
             })
 
     except Exception as e:
@@ -91,10 +110,10 @@ def fetch_and_process_pubmed(query, max_limit=10, save_csv=True):
 
     # 4. Save to Unique CSV
     if save_csv and processed_data:
-        clean_q = re.sub(r'[^\w\s-]', '', query).strip().replace(' ', '_')
+        clean_q = safe_query_slug(query)
         filename = f"pubmed_{clean_q}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
         with open(filename, 'w', newline='', encoding='utf-8') as f:
-            writer = csv.DictWriter(f, fieldnames=['ieee_authors', 'title', 'venue', 'year', 'citations', 'url'])
+            writer = csv.DictWriter(f, fieldnames=['ieee_authors', 'title', 'venue', 'year', 'citations', 'url', 'abstract'], extrasaction='ignore')
             writer.writeheader()
             for row in processed_data:
                 writer.writerow({k: v for k, v in row.items() if k != 'sort_name'})

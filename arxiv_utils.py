@@ -5,6 +5,7 @@ import time
 from datetime import datetime
 from requests.adapters import HTTPAdapter
 from urllib3.util import Retry
+from query_utils import safe_query_slug, clean_abstract
 
 def format_author_name(author_obj):
     """Converts 'Full Name' to 'F. Surname' to match IEEE style."""
@@ -67,7 +68,8 @@ def fetch_and_process_arxiv(query, max_limit=10, save_csv=True):
             'venue': f"arXiv preprint arXiv:{arxiv_id}",
             'year': result.published.year,
             'citations': "N/A", # arXiv API doesn't provide citation counts natively
-            'url': result.entry_id
+            'url': result.entry_id,
+            'abstract': clean_abstract(result.summary),
         })
 
     # 3. Sort by Author Name
@@ -75,11 +77,11 @@ def fetch_and_process_arxiv(query, max_limit=10, save_csv=True):
 
     # 4. Save to Unique CSV
     if save_csv and processed_data:
-        clean_q = re.sub(r'[^\w\s-]', '', query).strip().replace(' ', '_')
+        clean_q = safe_query_slug(query)
         filename = f"arxiv_{clean_q}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
         
         with open(filename, 'w', newline='', encoding='utf-8') as f:
-            writer = csv.DictWriter(f, fieldnames=['ieee_authors', 'title', 'venue', 'year', 'citations', 'url'])
+            writer = csv.DictWriter(f, fieldnames=['ieee_authors', 'title', 'venue', 'year', 'citations', 'url', 'abstract'], extrasaction='ignore')
             writer.writeheader()
             for row in processed_data:
                 # Filter out the helper sort_name key

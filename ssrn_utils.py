@@ -5,6 +5,7 @@ import re
 import time
 import os
 from datetime import datetime
+from query_utils import safe_query_slug, clean_abstract, to_plain_keywords
 
 def format_ssrn_authors(author_list):
     """
@@ -47,11 +48,11 @@ def fetch_and_process_ssrn(query, max_limit=20, save_csv=True):
     
     # Parameters for the search
     params = {
-        "query": query,
+        "query": to_plain_keywords(query),
         # Filter for SSRN prefix (10.2139) to ensure results are from SSRN
         "filter": "prefix:10.2139",
         "rows": max_limit,
-        "select": "DOI,title,author,container-title,published-print,published-online,URL"
+        "select": "DOI,title,author,container-title,published-print,published-online,URL,abstract"
     }
 
     # CrossRef recommends including an email for their "Polite" pool
@@ -98,7 +99,8 @@ def fetch_and_process_ssrn(query, max_limit=20, save_csv=True):
                 'year': year,
                 'citations': 0, # CrossRef does not provide citation counts in this endpoint
                 'doi': doi or 'N/A',
-                'url': entry.get('URL', '')
+                'url': entry.get('URL', ''),
+                'abstract': clean_abstract(entry.get('abstract')),
             })
             
         # Sort by Author Name
@@ -106,11 +108,11 @@ def fetch_and_process_ssrn(query, max_limit=20, save_csv=True):
 
         # Save to Unique CSV
         if save_csv and processed_data:
-            clean_q = re.sub(r"[^\w\s-]", "", query).strip().replace(" ", "_")
+            clean_q = safe_query_slug(query)
             filename = f"ssrn_{clean_q}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
 
             with open(filename, 'w', newline='', encoding='utf-8') as f:
-                writer = csv.DictWriter(f, fieldnames=['ieee_authors', 'title', 'venue', 'year', 'citations', 'doi', 'url'])
+                writer = csv.DictWriter(f, fieldnames=['ieee_authors', 'title', 'venue', 'year', 'citations', 'doi', 'url', 'abstract'], extrasaction='ignore')
                 writer.writeheader()
                 for row in processed_data:
                     # Filter out the helper sort_name key

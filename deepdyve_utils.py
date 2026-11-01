@@ -4,6 +4,7 @@ import re
 import csv
 import time # Added for API respect
 from datetime import datetime
+from query_utils import safe_query_slug, clean_abstract
 
 def format_pubmed_authors(author_list):
     if not author_list:
@@ -54,6 +55,13 @@ def fetch_and_process_deepdyve(query, max_limit=10, save_csv=True):
 
             ieee_authors, sort_key = format_pubmed_authors(info.findall(".//Author"))
 
+            abstract_parts = []
+            for el in info.findall(".//Abstract/AbstractText"):
+                text = "".join(el.itertext()).strip()
+                if text:
+                    label = el.get("Label")
+                    abstract_parts.append(f"{label}: {text}" if label else text)
+
             processed.append({
                 'sort_name': sort_key,
                 'ieee_authors': ieee_authors,
@@ -62,16 +70,17 @@ def fetch_and_process_deepdyve(query, max_limit=10, save_csv=True):
                 'year': info.findtext(".//Journal/JournalIssue/PubDate/Year", "n.d."),
                 'citations': 0,
                 'doi': doi or f"PMID:{pmid}",
-                'url': dd_url
+                'url': dd_url,
+                'abstract': clean_abstract(' '.join(abstract_parts)),
             })
             
         processed.sort(key=lambda x: x['sort_name'].lower())
 
         if save_csv and processed:
-            clean_q = re.sub(r"[^\w\s-]", "", query).strip().replace(" ", "_")
+            clean_q = safe_query_slug(query)
             filename = f"deepdyve_{clean_q}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
             with open(filename, 'w', newline='', encoding='utf-8') as f:
-                writer = csv.DictWriter(f, fieldnames=['ieee_authors', 'title', 'venue', 'year', 'citations', 'doi', 'url'])
+                writer = csv.DictWriter(f, fieldnames=['ieee_authors', 'title', 'venue', 'year', 'citations', 'doi', 'url', 'abstract'], extrasaction='ignore')
                 writer.writeheader()
                 for row in processed:
                     writer.writerow({k: v for k, v in row.items() if k != 'sort_name'})

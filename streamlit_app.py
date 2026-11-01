@@ -40,6 +40,7 @@ from srorch_critical_fixes import (
 
 # LaTeX export
 from latex_export import generate_latex_report
+from query_utils import safe_query_slug
 
 # Page configuration
 st.set_page_config(
@@ -2891,11 +2892,15 @@ def main():
             st.info(f"ℹ️ Searching with {len(available_engines)} engines")
         
         # Search input
-        search_query = st.text_input(
+        search_query = st.text_area(
             "Enter your research query:",
-            placeholder="e.g., Langerhans Cell Histiocytosis, Machine Learning in Healthcare, etc.",
-            help="Enter keywords or phrases describing your research topic"
-        )
+            placeholder='e.g., Langerhans Cell Histiocytosis  —  or a boolean query such as\n'
+                        '("oily sludge" OR "refinery sludge") AND (co-pyroly* OR copyroly*) AND (biomass OR lignin)',
+            help="Plain keywords or full boolean queries (AND / OR / NOT, \"exact phrases\", "
+                 "(grouping) and trailing wildcards*). Long queries are supported; each engine "
+                 "receives the query in its own syntax.",
+            height=100,
+        ).strip()
         
         col1, col2 = st.columns([2, 1])
         
@@ -3051,7 +3056,7 @@ def main():
                         
                         with filter_col3:
                             search_text = st.text_input(
-                                "Search Title/Authors",
+                                "Search Title/Authors/Abstract",
                                 placeholder="Enter keywords...",
                                 key="txt_search"
                             )
@@ -3067,9 +3072,12 @@ def main():
                     
                     if search_text:
                         mask = (
-                            filtered_df['title'].str.contains(search_text, case=False, na=False) |
-                            filtered_df['ieee_authors'].str.contains(search_text, case=False, na=False)
+                            filtered_df['title'].str.contains(search_text, case=False, na=False, regex=False) |
+                            filtered_df['ieee_authors'].str.contains(search_text, case=False, na=False, regex=False)
                         )
+                        if 'abstract' in filtered_df.columns:
+                            mask = mask | filtered_df['abstract'].astype(str).str.contains(
+                                search_text, case=False, na=False, regex=False)
                         filtered_df = filtered_df[mask]
                     
                     # Display controls
@@ -3077,6 +3085,9 @@ def main():
                     
                     with view_col1:
                         st.markdown(f"**Showing {len(filtered_df)} of {len(df)} papers**")
+                        if 'abstract' in df.columns:
+                            n_abs = int(df['abstract'].fillna('').astype(str).str.strip().ne('').sum())
+                            st.caption(f"📄 {n_abs} of {len(df)} papers have abstracts")
                     
                     with view_col2:
                         quick_action = st.selectbox(
@@ -3103,7 +3114,7 @@ def main():
                     
                     # Column selection
                     all_cols = df.columns.tolist()
-                    default_cols = ['relevance_score', 'source_count', 'ieee_authors', 'title', 'venue', 'year', 'citations', 'url']
+                    default_cols = ['relevance_score', 'source_count', 'ieee_authors', 'title', 'venue', 'year', 'citations', 'abstract', 'url']
                     default_cols = [c for c in default_cols if c in all_cols]
                     
                     selected_cols = st.multiselect(
@@ -3144,8 +3155,33 @@ def main():
                                 "citations": st.column_config.NumberColumn("Cites", format="%d"),
                                 "source_count": st.column_config.NumberColumn("Sources", format="%d"),
                                 "year": st.column_config.TextColumn("Year", width="small"),
+                                "abstract": st.column_config.TextColumn("Abstract", width="large"),
                             }
                         )
+
+                        # Full-text abstract reader
+                        if 'abstract' in filtered_df.columns and len(filtered_df):
+                            with st.expander("📄 Read Abstracts", expanded=False):
+                                abs_options = {
+                                    idx: f"[{idx}] {str(row.get('title', 'Untitled'))[:90]}"
+                                    for idx, row in filtered_df.iterrows()
+                                }
+                                abs_idx = st.selectbox(
+                                    "Select a paper",
+                                    options=list(abs_options.keys()),
+                                    format_func=lambda x: abs_options[x],
+                                    key="abstract_reader",
+                                )
+                                row = filtered_df.loc[abs_idx]
+                                abs_text = str(row.get('abstract', '') or '').strip()
+                                if abs_text and abs_text.lower() != 'nan':
+                                    st.markdown(f"**{row.get('title', '')}**")
+                                    st.write(abs_text)
+                                    src = str(row.get('abstract_source', '') or '')
+                                    if src and src.lower() != 'nan':
+                                        st.caption(f"Source: {src}")
+                                else:
+                                    st.info("No abstract was found for this paper in any engine.")
                         
                         st.info("💡 **Tip**: Click URLs to open papers directly!")
                         
@@ -3519,7 +3555,7 @@ def main():
                 st.markdown("---")
                 
                 # Download
-                topic_slug = st.session_state.report_form_data['topic'].replace(' ', '_')
+                topic_slug = safe_query_slug(st.session_state.report_form_data['topic'])
 
                 col1, col2 = st.columns(2)
                 with col1:

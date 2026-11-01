@@ -3,6 +3,7 @@ import csv
 import re
 import requests
 from datetime import datetime
+from query_utils import safe_query_slug, clean_abstract, to_plain_keywords
 
 def format_crossref_authors(authors_list):
     """Formats Crossref author list into IEEE 'I. Surname'."""
@@ -33,10 +34,10 @@ def fetch_and_process_doi(query, max_limit=10, save_csv=True, email="your@email.
     base_url = "https://api.crossref.org/works"
     # Using 'Polite' API etiquette by including an email in params
     params = {
-        "query": query,
+        "query": to_plain_keywords(query),
         "rows": max_limit,
         "mailto": email,
-        "select": "DOI,title,author,container-title,published-print,published-online,URL,is-referenced-by-count"
+        "select": "DOI,title,author,container-title,published-print,published-online,URL,is-referenced-by-count,abstract"
     }
 
     try:
@@ -74,17 +75,18 @@ def fetch_and_process_doi(query, max_limit=10, save_csv=True, email="your@email.
             'year': year,
             'citations': item.get('is-referenced-by-count', 0),
             'doi': item.get('DOI', 'N/A'),
-            'url': item.get('URL', f"https://doi.org/{item.get('DOI')}")
+            'url': item.get('URL', f"https://doi.org/{item.get('DOI')}"),
+            'abstract': clean_abstract(item.get('abstract')),
         })
 
     # Sort alphabetical by author
     processed_data.sort(key=lambda x: x['sort_name'].lower())
 
     if save_csv and processed_data:
-        clean_q = re.sub(r'[^\w\s-]', '', query).strip().replace(' ', '_')
+        clean_q = safe_query_slug(query)
         filename = f"doi_bulk_{clean_q}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
         with open(filename, 'w', newline='', encoding='utf-8') as f:
-            writer = csv.DictWriter(f, fieldnames=['ieee_authors', 'title', 'venue', 'year', 'citations', 'doi', 'url'])
+            writer = csv.DictWriter(f, fieldnames=['ieee_authors', 'title', 'venue', 'year', 'citations', 'doi', 'url', 'abstract'], extrasaction='ignore')
             writer.writeheader()
             for row in processed_data:
                 writer.writerow({k: v for k, v in row.items() if k != 'sort_name'})

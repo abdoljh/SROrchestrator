@@ -3,6 +3,7 @@ import csv
 import re
 import requests
 from datetime import datetime
+from query_utils import safe_query_slug, clean_abstract, reconstruct_inverted_index
 
 def format_openalex_authors(authorships):
     """Formats OpenAlex authorship objects into IEEE 'I. Surname'."""
@@ -37,7 +38,7 @@ def fetch_and_process_openalex(query, max_limit=20, save_csv=True, email="your@e
         "mailto": email,
         # We select specific fields to keep the response fast
         # Includes summary_stats for impact factor proxy and author h-index
-        "select": "id,title,publication_year,authorships,primary_location,cited_by_count,doi"
+        "select": "id,title,publication_year,authorships,primary_location,cited_by_count,doi,abstract_inverted_index"
     }
 
     try:
@@ -108,16 +109,17 @@ def fetch_and_process_openalex(query, max_limit=20, save_csv=True, email="your@e
             'url': url,
             'impact_factor': impact_factor,
             'h_index': h_index,
+            'abstract': reconstruct_inverted_index(work.get('abstract_inverted_index')),
         })
 
     # Sort alphabetically by surname
     processed_data.sort(key=lambda x: x['sort_name'].lower())
 
     if save_csv and processed_data:
-        clean_q = re.sub(r'[^\w\s-]', '', query).strip().replace(' ', '_')
+        clean_q = safe_query_slug(query)
         filename = f"openalex_{clean_q}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
         with open(filename, 'w', newline='', encoding='utf-8') as f:
-            writer = csv.DictWriter(f, fieldnames=['ieee_authors', 'title', 'venue', 'year', 'citations', 'doi', 'url', 'impact_factor', 'h_index'])
+            writer = csv.DictWriter(f, fieldnames=['ieee_authors', 'title', 'venue', 'year', 'citations', 'doi', 'url', 'impact_factor', 'h_index', 'abstract'], extrasaction='ignore')
             writer.writeheader()
             for row in processed_data:
                 writer.writerow({k: v for k, v in row.items() if k != 'sort_name'})

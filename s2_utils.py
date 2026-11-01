@@ -5,6 +5,7 @@ from datetime import datetime
 from requests import Session
 from requests.adapters import HTTPAdapter
 from urllib3.util import Retry
+from query_utils import safe_query_slug, clean_abstract, to_s2_bulk_query
 
 def abbreviate_venue(venue_name):
     if not venue_name: return "Unknown Venue"
@@ -29,8 +30,8 @@ def fetch_and_process_papers(api_key, query, filters=None, save_csv=True, csv_li
 
     # Added 'citationCount' and 'influentialCitationCount' to the fields list
     params = {
-        'query': query,
-        'fields': "paperId,title,year,authors,venue,url,citationCount,influentialCitationCount,externalIds",
+        'query': to_s2_bulk_query(query),
+        'fields': "paperId,title,year,authors,venue,url,citationCount,influentialCitationCount,externalIds,abstract",
         'limit': csv_limit
     }
     if filters:
@@ -71,6 +72,7 @@ def fetch_and_process_papers(api_key, query, filters=None, save_csv=True, csv_li
             'influential_citations': paper.get('influentialCitationCount', 0),
             'doi': doi if doi else 'N/A',
             'url': paper.get('url', ''),
+            'abstract': clean_abstract(paper.get('abstract')),
             'impact_factor': None,  # S2 does not provide journal IF
             'h_index': None,        # S2 bulk search does not include author h-index
         })
@@ -79,10 +81,10 @@ def fetch_and_process_papers(api_key, query, filters=None, save_csv=True, csv_li
     processed_data.sort(key=lambda x: x['sort_name'].lower())
 
     if save_csv and processed_data:
-        clean_q = re.sub(r'[^\w\s-]', '', query).strip().replace(' ', '_')
+        clean_q = safe_query_slug(query)
         filename = f"s2_{clean_q}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
         with open(filename, 'w', newline='', encoding='utf-8') as f:
-            writer = csv.DictWriter(f, fieldnames=['ieee_authors', 'title', 'venue', 'year', 'citations', 'influential_citations', 'doi', 'url', 'impact_factor', 'h_index'])
+            writer = csv.DictWriter(f, fieldnames=['ieee_authors', 'title', 'venue', 'year', 'citations', 'influential_citations', 'doi', 'url', 'impact_factor', 'h_index', 'abstract'], extrasaction='ignore')
             writer.writeheader()
             for row in processed_data:
                 writer.writerow({k: v for k, v in row.items() if k != 'sort_name'})

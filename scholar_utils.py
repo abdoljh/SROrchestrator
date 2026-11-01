@@ -4,6 +4,7 @@ import re
 from datetime import datetime
 #from serpapi import GoogleSearch
 from serpapi.google_search import GoogleSearch
+from query_utils import safe_query_slug, clean_abstract
 
 def format_scholar_authors(authors_list):
     if not authors_list:
@@ -70,16 +71,18 @@ def fetch_and_process_scholar(api_key, query, max_limit=10, save_csv=True):
             'venue': "Google Scholar",
             'year': year,
             'citations': item.get('inline_links', {}).get('cited_by', {}).get('total', 0),
-            'url': item.get('link', '')
+            'url': item.get('link', ''),
+            # Google Scholar only returns a short snippet, not a full abstract
+            'snippet': clean_abstract(item.get('snippet')),
         })
 
     processed_data.sort(key=lambda x: x['sort_name'].lower())
 
     if save_csv and processed_data:
-        clean_q = re.sub(r'[^\w\s-]', '', query).strip().replace(' ', '_')
+        clean_q = safe_query_slug(query)
         filename = f"scholar_{clean_q}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
         with open(filename, 'w', newline='', encoding='utf-8') as f:
-            writer = csv.DictWriter(f, fieldnames=['ieee_authors', 'title', 'venue', 'year', 'citations', 'url'])
+            writer = csv.DictWriter(f, fieldnames=['ieee_authors', 'title', 'venue', 'year', 'citations', 'url', 'abstract'], extrasaction='ignore')
             writer.writeheader()
             for row in processed_data:
                 writer.writerow({k: v for k, v in row.items() if k != 'sort_name'})
