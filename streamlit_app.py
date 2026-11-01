@@ -2922,7 +2922,12 @@ def main():
                 default=['csv', 'json', 'bibtex']
             )
 
-        with st.expander("Abstract Enrichment"):
+        with st.expander("Abstract & Metadata Enrichment"):
+            include_reference_entries = st.checkbox(
+                "Include encyclopedia / dictionary entries", value=False,
+                help="Crossref 'reference-entry' records (e.g. 'Catalysis from A to Z: fluid catalytic "
+                     "cracking') are short definitions with no abstract and usually no author."
+            )
             scrape_landing_pages = st.checkbox(
                 "Read abstracts from publisher pages", value=True,
                 help="For papers whose abstract no API provides (e.g. Elsevier/ScienceDirect), "
@@ -2946,6 +2951,7 @@ def main():
             'recency_multiplier': recency_multiplier,
             'enrich_abstracts': True,
             'disabled_engines': disabled_engines,
+            'include_reference_entries': include_reference_entries,
             'scrape_landing_pages': scrape_landing_pages and landing_page_limit > 0,
             'landing_page_limit': landing_page_limit,
         }

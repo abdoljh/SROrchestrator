@@ -23,12 +23,21 @@ NON_ARTICLE_TYPES = {
     "journal", "journal-issue", "journal-volume", "book-series",
     "book-set", "proceedings", "proceedings-series", "report-series", "standard-series",
 }
+# Encyclopedia / dictionary entries ("Catalysis from A to Z: fluid catalytic
+# cracking"): short definitions with no abstract and usually no author.
+# Excluded unless the orchestrator config sets include_reference_entries.
+INCLUDE_REFERENCE_ENTRIES = False
+REFERENCE_TYPES = {"reference-entry"}
+
 _NON_ARTICLE_DOI_RE = re.compile(r"(/v\d+/(review|decision|response)\d*$)|(\.s\d{3,}$)", re.I)
 _NON_ARTICLE_TITLE_RE = re.compile(r"^(review for|decision letter for|author response for|reviewer report)\b", re.I)
 
 
 def is_non_article(entry: Dict) -> bool:
-    if (entry.get("type") or "").lower() in NON_ARTICLE_TYPES:
+    etype = (entry.get("type") or "").lower()
+    if etype in NON_ARTICLE_TYPES:
+        return True
+    if etype in REFERENCE_TYPES and not INCLUDE_REFERENCE_ENTRIES:
         return True
     if _NON_ARTICLE_DOI_RE.search(entry.get("DOI") or ""):
         return True

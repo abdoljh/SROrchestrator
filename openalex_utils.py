@@ -48,7 +48,7 @@ def fetch_and_process_openalex(query, max_limit=20, save_csv=True, email="your@e
         results = data.get("results", [])
     except Exception as e:
         print(f"[Error] OpenAlex API failure: {e}")
-        return []
+        raise RuntimeError(f"OpenAlex: {e}")
 
     processed_data = []
     

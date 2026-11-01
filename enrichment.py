@@ -100,6 +100,14 @@ def _get(url, *, params=None, headers=None, timeout=20, retries=3):
     return r
 
 
+def _els_error(r) -> str:
+    try:
+        st = r.json().get('service-error', {}).get('status', {})
+        return st.get('statusText') or st.get('statusCode') or r.text[:120]
+    except Exception:
+        return r.text[:120]
+
+
 class AbstractEnricher:
     def __init__(self, api_keys: Dict, config: Optional[Dict] = None, log: Callable = print):
         self.keys = api_keys or {}
@@ -206,13 +214,19 @@ class AbstractEnricher:
         headers = {'x-api-key': self.keys['s2']} if self.keys.get('s2') else {}
         for i in range(0, len(dois), batch):
             chunk = dois[i:i + batch]
-            for attempt in range(3):
+            if i and not headers:
+                time.sleep(1.2)   # public pool: ~1 request/second
+            for attempt in range(4):
                 try:
                     r = requests.post("https://api.semanticscholar.org/graph/v1/paper/batch",
                                       params={'fields': 'abstract,tldr,authors,venue,year'},
                                       json={'ids': [f"DOI:{d}" for d in chunk]}, headers=headers, timeout=30)
                 except requests.RequestException:
                     r = None
+                if r is not None and r.status_code in (401, 403) and headers:
+                    self._note('Semantic Scholar', f"API key rejected (HTTP {r.status_code}) - using public pool")
+                    headers = {}
+                    continue
                 if r is not None and r.status_code == 429:
                     time.sleep(2 ** (attempt + 1))   # unauthenticated pool is rate-limited
                     continue
@@ -232,6 +246,42 @@ class AbstractEnricher:
                     if tldr and not p.get('tldr'):
                         p['tldr'] = tldr
 
+    # ---------------------------------------------- 3b. Crossref parent book (chapter editors)
+
+    def crossref_books(self, papers, limit=30):
+        """Book chapters often carry no names; the parent book lists its editors."""
+        from crossref_common import crossref_authors
+        todo = self._index(papers, lambda p: is_unknown_author(p.get('ieee_authors')))
+        hdr = {'User-Agent': f"SROrch/2.0 (mailto:{self.keys.get('email') or 'researcher@example.com'})"}
+        for d in list(todo)[:limit]:
+            try:
+                r = _get(f"https://api.crossref.org/works/{d}", headers=hdr, timeout=15, retries=2)
+                if r.status_code != 200:
+                    continue
+                item = r.json().get('message', {})
+                names, _ = crossref_authors(item)
+                if names == 'Unknown Author':
+                    for isbn in (item.get('ISBN') or [])[:2]:
+                        rb = _get("https://api.crossref.org/works", headers=hdr, timeout=15, retries=2,
+                                  params={'filter': f'isbn:{isbn}', 'rows': 5,
+                                          'select': 'DOI,type,author,editor'})
+                        if rb.status_code != 200:
+                            continue
+                        for book in rb.json().get('message', {}).get('items', []):
+                            if book.get('type') in ('book', 'edited-book', 'monograph', 'reference-book'):
+                                names, _ = crossref_authors(book)
+                                if names != 'Unknown Author':
+                                    break
+                        if names != 'Unknown Author':
+                            break
+                if names != 'Unknown Author':
+                    self._set_meta(todo[d], authors=names)
+                    self._note('Crossref book editors', 'filled')
+                else:
+                    self._note('Crossref book editors', 'no author or editor registered')
+            except Exception as e:
+                self._note('Crossref book editors', f"error: {type(e).__name__}")
+
     # ---------------------------------------------- 4. Elsevier (ScienceDirect / Scopus)
 
     def _elsevier_one(self, doi):
@@ -244,6 +294,9 @@ class AbstractEnricher:
             r = _get(f"https://api.elsevier.com/content/article/doi/{doi}",
                      params={'view': 'META_ABS'}, headers=headers, timeout=15, retries=2)
             self._note('Elsevier Article API', f"HTTP {r.status_code}")
+            if r.status_code in (401, 403):
+                self._els_denied = f"HTTP {r.status_code}: {_els_error(r)}"
+                return None, None
             if r.status_code == 200:
                 core = r.json().get('full-text-retrieval-response', {}).get('coredata', {})
                 authors = core.get('dc:creator') or []
@@ -275,6 +328,19 @@ class AbstractEnricher:
             return
         todo = self._index(papers, lambda p: _needs_abstract(p) or is_unknown_author(p.get('ieee_authors')))
         dois = [d for d in todo if d.startswith('10.1016/')][:limit]
+        if not dois:
+            return
+        # Probe once: if Elsevier denies this key, don't hammer it for every paper
+        self._els_denied = None
+        first = self._elsevier_one(dois[0])
+        if self._els_denied:
+            self._note('Elsevier API', f"access denied - {self._els_denied.rstrip('.')}. "
+                       f"Off-campus keys need an institutional token (SCOPUS_INST_TOKEN) or an "
+                       f"Elsevier-entitled network; {len(dois)} Elsevier abstracts skipped")
+            return
+        self._set_abstract(todo[dois[0]], first[0], 'Elsevier API')
+        self._set_meta(todo[dois[0]], authors=first[1])
+        dois = dois[1:]
         with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
             for d, (abstract, authors) in zip(dois, ex.map(self._elsevier_one, dois)):
                 self._set_abstract(todo[d], abstract, 'Elsevier API')
@@ -343,7 +409,8 @@ class AbstractEnricher:
         self.log(f"\n[Enrich] {before}/{len(papers)} papers have abstracts from the search engines")
 
         steps = [('OpenAlex', self.openalex), ('Europe PMC', self.europe_pmc),
-                 ('Semantic Scholar', self.semantic_scholar), ('Elsevier', self.elsevier),
+                 ('Semantic Scholar', self.semantic_scholar), ('Crossref books', self.crossref_books),
+                 ('Elsevier', self.elsevier),
                  ('Springer', self.springer)]
         if self.config.get('scrape_landing_pages', True):
             steps.append(('Publisher pages',

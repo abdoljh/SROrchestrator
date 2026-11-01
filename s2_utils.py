@@ -37,8 +37,14 @@ def fetch_and_process_papers(api_key, query, filters=None, save_csv=True, csv_li
     if filters:
         params.update(filters)
 
-    response = http.get("https://api.semanticscholar.org/graph/v1/paper/search/bulk",
-                        headers={'x-api-key': api_key}, params=params)
+    url = "https://api.semanticscholar.org/graph/v1/paper/search/bulk"
+    response = http.get(url, headers={'x-api-key': api_key}, params=params)
+    if response.status_code in (401, 403):
+        # Key rejected (expired / revoked / not activated): the public pool works without one
+        print(f"[Warning] Semantic Scholar rejected the API key (HTTP {response.status_code}); "
+              f"retrying without a key (shared rate limit)")
+        time.sleep(1)
+        response = http.get(url, params=params)
     response.raise_for_status()
     
     raw_papers = response.json().get('data', [])

@@ -2,7 +2,6 @@ import time
 import csv
 import re
 from datetime import datetime
-from Bio import Entrez
 from query_utils import safe_query_slug, clean_abstract
 
 def abbreviate_venue(venue_name):
@@ -25,85 +24,80 @@ def format_pubmed_author(author):
         return f"{initials[0]}. {last_name}"
     return author.get('CollectiveName', 'Unknown')
 
-#def fetch_and_process_pubmed(email, query, max_limit=10, save_csv=True):
+def parse_pubmed_xml(content: bytes):
+    """Parse an efetch PubmedArticleSet (plain ElementTree; no DTD download needed)."""
+    import xml.etree.ElementTree as ET
+    out = []
+    for art in ET.fromstring(content).findall(".//PubmedArticle"):
+        med = art.find("MedlineCitation")
+        info = med.find("Article") if med is not None else None
+        if info is None:
+            continue
+        pmid = med.findtext("PMID", "")
+
+        authors = []
+        for au in info.findall(".//AuthorList/Author"):
+            last, ini = au.findtext("LastName", ""), au.findtext("Initials", "")
+            if last:
+                authors.append((f"{ini[0]}. {last}" if ini else last, last))
+            elif au.findtext("CollectiveName"):
+                authors.append((au.findtext("CollectiveName"), au.findtext("CollectiveName")))
+        if not authors:
+            display, sort_key = "Unknown Author", "Unknown"
+        else:
+            sort_key = authors[0][1]
+            display = (f"{authors[0][0]} et al." if len(authors) >= 3 else
+                       f"{authors[0][0]} and {authors[1][0]}" if len(authors) == 2 else authors[0][0])
+
+        parts = []
+        for el in info.findall(".//Abstract/AbstractText"):
+            text = "".join(el.itertext()).strip()
+            if text:
+                parts.append(f"{el.get('Label')}: {text}" if el.get("Label") else text)
+
+        year = (info.findtext(".//Journal/JournalIssue/PubDate/Year")
+                or (info.findtext(".//Journal/JournalIssue/PubDate/MedlineDate") or "")[:4] or "n.d.")
+        doi = next((e.text for e in art.findall(".//PubmedData/ArticleIdList/ArticleId")
+                    if e.get("IdType") == "doi" and e.text), "")
+        out.append({
+            'sort_name': sort_key,
+            'ieee_authors': display,
+            'title': "".join(info.find("ArticleTitle").itertext()).strip() if info.find("ArticleTitle") is not None else 'Untitled Document',
+            'venue': abbreviate_venue(info.findtext(".//Journal/Title", "Unknown Journal")),
+            'year': year,
+            'citations': "N/A",
+            'doi': doi or 'N/A',
+            'url': f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/",
+            'abstract': clean_abstract(' '.join(parts)),
+        })
+    return out
+
+
 def fetch_and_process_pubmed(query, max_limit=10, save_csv=True):
+    """
+    PubMed via NCBI E-utilities (esearch + efetch), parsed with ElementTree.
+    (Bio.Entrez.read needs to fetch DTDs, which failed silently on hosted deployments.)
+    """
     import os
-    Entrez.email = os.getenv("USER_EMAIL")
-    #Entrez.email = email
-    processed_data = []
+    import requests
+    base = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
+    common = {"tool": "SROrch"}
+    if os.getenv("USER_EMAIL"):
+        common["email"] = os.getenv("USER_EMAIL")
 
-    try:
-        # 1. Search for IDs
-        handle = Entrez.esearch(db="pubmed", term=query, retmax=max_limit, retmode="xml")
-        record = Entrez.read(handle)
-        handle.close()
-        id_list = record.get("IdList", [])
-
-        if not id_list:
-            return []
-
-        # 2. Fetch Details
-        fetch_handle = Entrez.efetch(db="pubmed", id=id_list, rettype="medline", retmode="xml")
-        papers = Entrez.read(fetch_handle)
-        fetch_handle.close()
-
-        for article_data in papers['PubmedArticle']:
-            citation = article_data['MedlineCitation']
-            article = citation['Article']
-            pmid = str(citation['PMID'])
-            
-            # Author Logic
-            auth_list = article.get('AuthorList', [])
-            if not auth_list:
-                display_authors, sort_key = "Unknown Author", "Unknown"
-            else:
-                first_auth = format_pubmed_author(auth_list[0])
-                sort_key = auth_list[0].get('LastName', 'Unknown')
-                if len(auth_list) >= 3:
-                    display_authors = f"{first_auth} et al."
-                elif len(auth_list) == 2:
-                    display_authors = f"{first_auth} and {format_pubmed_author(auth_list[1])}"
-                else:
-                    display_authors = first_auth
-
-            # Venue and Date
-            raw_venue = article.get('Journal', {}).get('Title', 'Unknown Journal')
-            year = 'n.d.'
-            pub_date = article.get('Journal', {}).get('JournalIssue', {}).get('PubDate', {})
-            if 'Year' in pub_date:
-                year = pub_date['Year']
-            
-            # Abstract (structured abstracts have labelled sections)
-            abstract_parts = []
-            for part in article.get('Abstract', {}).get('AbstractText', []) or []:
-                label = getattr(part, 'attributes', {}).get('Label') if hasattr(part, 'attributes') else None
-                text = str(part).strip()
-                if text:
-                    abstract_parts.append(f"{label}: {text}" if label else text)
-            abstract = clean_abstract(' '.join(abstract_parts))
-
-            # DOI (used for cross-engine de-duplication)
-            doi = ''
-            for aid in article_data.get('PubmedData', {}).get('ArticleIdList', []) or []:
-                if getattr(aid, 'attributes', {}).get('IdType') == 'doi':
-                    doi = str(aid)
-                    break
-
-            processed_data.append({
-                'sort_name': sort_key,
-                'ieee_authors': display_authors,
-                'title': article.get('ArticleTitle', 'Untitled Document'),
-                'venue': abbreviate_venue(raw_venue),
-                'year': year,
-                'citations': "N/A", # PubMed API requires a separate link-out for citations
-                'doi': doi or 'N/A',
-                'url': f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/",
-                'abstract': abstract,
-            })
-
-    except Exception as e:
-        print(f"[Error] PubMed API failure: {e}")
+    r = requests.get(f"{base}/esearch.fcgi", timeout=20,
+                     params={**common, "db": "pubmed", "term": query, "retmax": max_limit, "retmode": "json"})
+    if r.status_code != 200:
+        raise RuntimeError(f"PubMed esearch HTTP {r.status_code}: {r.text[:120]}")
+    id_list = r.json().get("esearchresult", {}).get("idlist", [])
+    if not id_list:
         return []
+    time.sleep(0.4)  # NCBI: max 3 requests/second without an API key
+    r = requests.get(f"{base}/efetch.fcgi", timeout=30,
+                     params={**common, "db": "pubmed", "id": ",".join(id_list), "retmode": "xml"})
+    if r.status_code != 200:
+        raise RuntimeError(f"PubMed efetch HTTP {r.status_code}: {r.text[:120]}")
+    processed_data = parse_pubmed_xml(r.content)
 
     # 3. Sort by Author
     processed_data.sort(key=lambda x: x['sort_name'].lower())

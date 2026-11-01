@@ -60,8 +60,14 @@ def fetch_and_process_scopus(api_key, query, max_limit=20, save_csv=True):
     try:
         response = requests.get(base_url, headers=headers, params=params, timeout=20)
         if response.status_code != 200:
-            print(f"[Error] Scopus API returned status: {response.status_code}")
-            return []
+            try:
+                err = response.json().get('service-error', {}).get('status', {})
+                detail = err.get('statusText') or err.get('statusCode') or response.text[:120]
+            except Exception:
+                detail = response.text[:120]
+            hint = (" - Elsevier rejects this key/location; off-campus use needs an institutional "
+                    "token (SCOPUS_INST_TOKEN)") if response.status_code in (401, 403) else ""
+            raise RuntimeError(f"Scopus HTTP {response.status_code}: {detail}{hint}")
             
         data = response.json()
         entries = data.get('search-results', {}).get('entry', [])
@@ -134,4 +140,4 @@ def fetch_and_process_scopus(api_key, query, max_limit=20, save_csv=True):
         return processed_data
     except Exception as e:
         print(f"[Error] Scopus integration failure: {e}")
-        return []
+        raise
