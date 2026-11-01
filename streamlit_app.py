@@ -142,8 +142,11 @@ st.markdown("""
 # CONFIGURATION & CONSTANTS
 # ==============================================
 
-MODEL_PRIMARY = "claude-sonnet-4-20250514"
-MODEL_FALLBACK = "claude-haiku-3-5-20241022"
+# Claude models used by the Reviewer. Both can be overridden from Streamlit
+# secrets (ANTHROPIC_MODEL / ANTHROPIC_FALLBACK_MODEL) without a code change
+# the next time a model is retired.
+MODEL_PRIMARY = "claude-sonnet-5-5"
+MODEL_FALLBACK = "claude-haiku-5-5"
 MIN_API_DELAY = 3.0
 RETRY_DELAYS = [10, 20, 40]
 
@@ -1107,90 +1110,114 @@ def rate_limit_wait():
     st.session_state.last_api_call_time = time.time()
     st.session_state.report_api_calls += 1
 
+def _secret(name: str, default: str = "") -> str:
+    try:
+        return str(st.secrets.get(name, default) or default).strip()
+    except Exception:
+        return os.getenv(name, default).strip()
+
+
+def _model_request_options(model: str) -> Dict:
+    """
+    Per-model thinking / effort settings for the Reviewer's JSON-generation calls.
+
+    Thinking tokens count against max_tokens, so for these structured-output
+    calls thinking is turned off where the model allows it:
+      * Claude Sonnet 5.5: `between_tools` (its "thinking off"; `disabled` is a 400)
+      * Claude Haiku 5.5 and others: `disabled` (allowed at effort high or below)
+    Server-side refusal fallback ("default" routing) is enabled for Sonnet 5.5.
+    """
+    if model.startswith("claude-sonnet-5-5"):
+        return {"thinking": {"type": "between_tools"},
+                "output_config": {"effort": "high"},
+                "betas": ["server-side-fallback-2026-07-01"],
+                "fallbacks": "default"}
+    if model.startswith(("claude-haiku-5-5", "claude-sonnet-5", "claude-opus-5")) and \
+            not model.startswith("claude-opus-5-5"):
+        return {"thinking": {"type": "disabled"}, "output_config": {"effort": "high"}}
+    # Claude Opus 5.5 / Fable: thinking can't be turned off - keep effort low
+    return {"output_config": {"effort": "low"}}
+
+
+@st.cache_resource(show_spinner=False)
+def _anthropic_client(api_key: str):
+    import anthropic
+    # The SDK retries 408/409/429/5xx/529 with exponential backoff itself
+    return anthropic.Anthropic(api_key=api_key, max_retries=4, timeout=300.0)
+
+
 def call_anthropic_api(
-    messages: List[Dict], 
-    max_tokens: int = 1000, 
+    messages: List[Dict],
+    max_tokens: int = 1000,
     use_fallback: bool = False,
-    system: str = None  # NEW PARAMETER
+    system: str = None
 ) -> Dict:
     """
-    FIXED: Call Anthropic API with proper system parameter handling
-    
-    Args:
-        messages: List of message dicts with 'role' (user/assistant only) and 'content'
-        max_tokens: Maximum tokens to generate
-        use_fallback: Whether to use fallback model
-        system: Optional system prompt (passed as top-level parameter, NOT in messages)
+    Call the Claude Messages API via the official Anthropic SDK.
+
+    Returns the response as a plain dict (same shape as the raw JSON:
+    response['content'] is a list of blocks; read the blocks whose type is 'text').
     """
-    try:
-        anthropic_key = st.secrets["ANTHROPIC_API_KEY"]
-    except:
+    import anthropic
+
+    anthropic_key = _secret("ANTHROPIC_API_KEY")
+    if not anthropic_key:
         raise Exception("Anthropic API key not configured in secrets")
-    
+
     rate_limit_wait()
-    
-    headers = {
-        "Content-Type": "application/json",
-        "x-api-key": anthropic_key,
-        "anthropic-version": "2023-06-01"
-    }
-    
-    model = MODEL_FALLBACK if use_fallback else MODEL_PRIMARY
-    
-    # Build request data
-    data = {
+    client = _anthropic_client(anthropic_key)
+
+    model = (_secret("ANTHROPIC_FALLBACK_MODEL", MODEL_FALLBACK) if use_fallback
+             else _secret("ANTHROPIC_MODEL", MODEL_PRIMARY))
+    opts = _model_request_options(model)
+
+    params = {
         "model": model,
         "max_tokens": max_tokens,
-        "messages": messages  # ✅ Must only contain user/assistant roles
+        "messages": messages,  # user/assistant roles only
+        "output_config": opts["output_config"],
     }
-    
-    # ✅ FIX: Add system parameter separately (not as a message role)
     if system:
-        data["system"] = system
-    
-    for attempt in range(3):
-        try:
-            response = requests.post(
-                "https://api.anthropic.com/v1/messages",
-                headers=headers,
-                json=data,
-                timeout=180
-            )
-            
-            if response.status_code == 429:
-                wait_time = RETRY_DELAYS[attempt]
-                st.warning(f"⏳ Rate limited. Waiting {wait_time}s (attempt {attempt+1}/3)")
-                time.sleep(wait_time)
-                continue
-            
-            if response.status_code == 529:
-                wait_time = RETRY_DELAYS[attempt]
-                st.warning(f"⏳ API overloaded. Waiting {wait_time}s (attempt {attempt+1}/3)")
-                time.sleep(wait_time)
-                continue
-            
-            # ✅ NEW: Better error reporting for 400 errors
-            if response.status_code == 400:
-                error_detail = response.json()
-                raise Exception(f"400 Bad Request: {error_detail.get('error', {}).get('message', 'Unknown error')}")
-            
-            response.raise_for_status()
-            return response.json()
-        
-        except requests.exceptions.RequestException as e:
-            st.warning(f"⚠️ API error (attempt {attempt+1}/3): {str(e)[:100]}")
-            if attempt == 2:
-                if not use_fallback:
-                    st.info("🔄 Trying fallback model...")
-                    return call_anthropic_api(messages, max_tokens, use_fallback=True, system=system)
-                raise
-            time.sleep(RETRY_DELAYS[attempt])
-    
-    if not use_fallback:
-        st.info("🔄 Primary model failed. Trying fallback model...")
+        params["system"] = system
+    if "thinking" in opts:
+        params["thinking"] = opts["thinking"]
+
+    def fall_back(reason: str):
+        if use_fallback:
+            raise Exception(f"Claude API failed on fallback model {model}: {reason}")
+        st.info(f"🔄 {reason} — trying fallback model "
+                f"{_secret('ANTHROPIC_FALLBACK_MODEL', MODEL_FALLBACK)}...")
         return call_anthropic_api(messages, max_tokens, use_fallback=True, system=system)
-    
-    raise Exception("API call failed after 3 retries with both models")
+
+    try:
+        if "fallbacks" in opts:
+            response = client.beta.messages.create(
+                **params, betas=opts["betas"], fallbacks=opts["fallbacks"])
+        else:
+            response = client.messages.create(**params)
+    except anthropic.NotFoundError as e:
+        # Usually a retired / mistyped model ID
+        return fall_back(f"Model '{model}' not found (404): {e.message}")
+    except anthropic.AuthenticationError:
+        raise Exception("Anthropic API key is invalid (401). Update ANTHROPIC_API_KEY in secrets.")
+    except anthropic.PermissionDeniedError as e:
+        raise Exception(f"API key has no access to model '{model}' (403): {e.message}")
+    except anthropic.BadRequestError as e:
+        raise Exception(f"400 Bad Request from Claude API ({model}): {e.message}")
+    except (anthropic.RateLimitError, anthropic.InternalServerError, anthropic.APIConnectionError) as e:
+        # The SDK has already retried with backoff
+        return fall_back(f"{type(e).__name__} on {model} after retries")
+    except anthropic.APIStatusError as e:
+        return fall_back(f"HTTP {e.status_code} on {model}: {e.message}")
+
+    if response.stop_reason == "refusal":
+        details = getattr(response, "stop_details", None)
+        why = getattr(details, "explanation", None) or getattr(details, "category", None) or "no details"
+        raise Exception(f"Claude declined this request ({why}).")
+    if response.stop_reason == "max_tokens":
+        st.warning(f"⚠️ Response hit the {max_tokens}-token limit and may be truncated.")
+
+    return response.to_dict()
 
 
 def parse_json_response(text: str) -> Dict:
@@ -1690,7 +1717,7 @@ REMINDER: Every claim needs [X] citation. Every number needs source support. Gen
     # First generation attempt with boundary-enforced prompt
     response = call_anthropic_api(
         [{"role": "user", "content": user_prompt}],
-        max_tokens=6000,
+        max_tokens=16000,
         system=full_system_prompt  # CRITICAL: Uses combined prompt with boundaries
     )
 
@@ -1739,7 +1766,7 @@ Return corrected JSON."""
         try:
             retry_response = call_anthropic_api(
                 [{"role": "user", "content": user_prompt + "\n\n" + correction_prompt}],
-                max_tokens=6000,
+                max_tokens=16000,
                 system=full_system_prompt + "\n\nTHIS IS A CORRECTION ATTEMPT. FIX ALL ISSUES LISTED."
             )
             
@@ -2483,7 +2510,8 @@ def execute_report_pipeline():
                 'export_formats': ['csv', 'json'],
                 'recency_boost': True,
                 'recency_years': 5,
-                'recency_multiplier': 2.0
+                'recency_multiplier': 2.0,
+                'disabled_engines': st.session_state.get('disabled_engines', []),
             }
             
             # Set API keys
@@ -2734,10 +2762,12 @@ def main():
         # Load API keys and check status
         api_keys = load_api_keys()
         key_status = check_api_keys(api_keys)
-        available_engines = get_available_engines(key_status)
+        keyed_engines = get_available_engines(key_status)
         
-        # Engine Status Display
-        st.subheader("🔍 Available Engines")
+        # Engine Status Display + on/off switches
+        st.subheader("🔍 Search Engines")
+        st.caption("Untick an engine to leave it out of the search "
+                   "(e.g. DBLP/ACM/arXiv for non-computing topics).")
         
         engine_display = {
             "Semantic Scholar": key_status['s2'],
@@ -2760,11 +2790,38 @@ def main():
             "SAGE Journals": "✅",
         }
         
+        ALL_ENGINES = list(engine_display)
+        if 'enabled_engines' not in st.session_state:
+            st.session_state['enabled_engines'] = set(ALL_ENGINES)
+
+        sel_col1, sel_col2 = st.columns(2)
+        with sel_col1:
+            if st.button("Select all", key="eng_all", width='stretch'):
+                st.session_state['enabled_engines'] = set(ALL_ENGINES)
+                for e in ALL_ENGINES:
+                    st.session_state[f"eng_{e}"] = True
+        with sel_col2:
+            if st.button("Clear all", key="eng_none", width='stretch'):
+                st.session_state['enabled_engines'] = set()
+                for e in ALL_ENGINES:
+                    st.session_state[f"eng_{e}"] = False
+
         for engine, status in engine_display.items():
-            if status == "✅":
-                st.markdown(f"✅ **{engine}**")
+            has_key = status == "✅"
+            st.session_state.setdefault(f"eng_{engine}", engine in st.session_state['enabled_engines'])
+            checked = st.checkbox(
+                engine if has_key else f"{engine} (no key)",
+                key=f"eng_{engine}",
+                disabled=not has_key,
+            )
+            if checked:
+                st.session_state['enabled_engines'].add(engine)
             else:
-                st.markdown(f"❌ {engine} *(no key)*")
+                st.session_state['enabled_engines'].discard(engine)
+
+        available_engines = [e for e in keyed_engines if e in st.session_state['enabled_engines']]
+        disabled_engines = [e for e in ALL_ENGINES if e not in st.session_state['enabled_engines']]
+        st.session_state['disabled_engines'] = disabled_engines
         
         st.info(f"**Active Engines:** {len(available_engines)}/18")
         
@@ -2888,6 +2945,7 @@ def main():
             'recency_years': recency_years,
             'recency_multiplier': recency_multiplier,
             'enrich_abstracts': True,
+            'disabled_engines': disabled_engines,
             'scrape_landing_pages': scrape_landing_pages and landing_page_limit > 0,
             'landing_page_limit': landing_page_limit,
         }
@@ -2957,6 +3015,8 @@ def main():
                     # Initialize orchestrator
                     orchestrator = ResearchOrchestrator(config=config)
                     
+                    if not available_engines:
+                        raise Exception("All search engines are switched off - enable at least one in the sidebar.")
                     status_text.text(f"🔍 Searching across {len(available_engines)} databases...")
                     progress_bar.progress(30)
                     
@@ -3028,6 +3088,33 @@ def main():
                 st.metric("Active Engines", successful_engines)
             
             st.divider()
+
+            enrich = metadata.get('enrichment') or {}
+            if enrich:
+                with st.expander(
+                    f"🧪 Abstract & author enrichment — {enrich.get('with_abstract_after', 0)}/"
+                    f"{enrich.get('total', 0)} papers with abstracts, "
+                    f"{enrich.get('unknown_authors_after', 0)} unknown authors left",
+                    expanded=False,
+                ):
+                    st.markdown(
+                        f"- From search engines: **{enrich.get('with_abstract_before', 0)}**\n"
+                        f"- Filled by enrichment: **{enrich.get('with_abstract_after', 0) - enrich.get('with_abstract_before', 0)}** "
+                        + (f"({', '.join(f'{k}: {v}' for k, v in enrich.get('filled_by', {}).items())})"
+                           if enrich.get('filled_by') else '')
+                        + f"\n- Unknown authors: **{enrich.get('unknown_authors_before', 0)} → "
+                          f"{enrich.get('unknown_authors_after', 0)}**"
+                    )
+                    for step, outcomes in (enrich.get('diagnostics') or {}).items():
+                        st.markdown(f"**{step}**")
+                        st.dataframe(
+                            pd.DataFrame(sorted(outcomes.items(), key=lambda x: -x[1]),
+                                         columns=['Outcome', 'Papers']),
+                            hide_index=True, width='stretch')
+                    if metadata.get('enrichment_log'):
+                        st.code('\n'.join(metadata['enrichment_log']), language=None)
+                    st.caption("The 'abstract_source' and 'found_in' columns in the CSV show where each "
+                               "abstract came from and which engines returned each paper.")
             
             # Interactive Data Explorer
             csv_path = os.path.join(output_dir, "MASTER_REPORT_FINAL.csv")

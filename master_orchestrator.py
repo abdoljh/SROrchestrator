@@ -135,6 +135,9 @@ class ResearchOrchestrator:
 
             if key in unique_papers:
                 unique_papers[key]['source_count'] += 1
+                if paper.get('found_in') and paper['found_in'] not in unique_papers[key].get('found_in', ''):
+                    unique_papers[key]['found_in'] = '; '.join(
+                        x for x in (unique_papers[key].get('found_in'), paper['found_in']) if x)
                 if cites > unique_papers[key].get('citations_int', 0):
                     unique_papers[key]['citations_int'] = cites
                     unique_papers[key]['citations'] = cites
@@ -235,7 +238,17 @@ class ResearchOrchestrator:
         enrichment chain in enrichment.py: OpenAlex -> Europe PMC -> Semantic
         Scholar -> Elsevier API (SCOPUS_API_KEY) -> Springer -> publisher page.
         """
-        return AbstractEnricher(self.api_keys, self.config).run(papers)
+        log_lines = []
+
+        def log(msg):
+            print(msg)
+            log_lines.append(msg.strip('\n'))
+
+        enricher = AbstractEnricher(self.api_keys, self.config, log=log)
+        enricher.run(papers)
+        self.session_metadata['enrichment'] = getattr(enricher, 'summary', {})
+        self.session_metadata['enrichment_log'] = log_lines
+        return papers
 
     def fetch_abstracts_for_top_papers(self, top_papers, limit=None):
         limit = limit or self.config['abstract_limit']
@@ -434,83 +447,42 @@ class ResearchOrchestrator:
             
             def is_valid_key(key):
                 return key and isinstance(key, str) and len(key.strip()) > 5
-            
-            # Premium Engines
-            if is_valid_key(self.api_keys.get('s2')):
-                tasks[executor.submit(s2_utils.fetch_and_process_papers, self.api_keys['s2'], query, csv_limit=limit_per_engine)] = "Semantic Scholar"
-                print(f"  ✓ Semantic Scholar enabled (API key provided)")
-            else:
-                print(f"  ✗ Semantic Scholar skipped (no valid API key)")
-                self.session_metadata['failed_engines'].append("Semantic Scholar (no API key)")
-            
-            if is_valid_key(self.api_keys.get('serp')):
-                tasks[executor.submit(scholar_utils.fetch_and_process_scholar, self.api_keys['serp'], query, max_limit=limit_per_engine)] = "Google Scholar"
-                print(f"  ✓ Google Scholar enabled (API key provided)")
-            else:
-                print(f"  ✗ Google Scholar skipped (no valid API key)")
-                self.session_metadata['failed_engines'].append("Google Scholar (no API key)")
-            
-            if is_valid_key(self.api_keys.get('core')):
-                tasks[executor.submit(core_utils.fetch_and_process_core, self.api_keys['core'], query, max_limit=limit_per_engine)] = "CORE"
-                print(f"  ✓ CORE enabled (API key provided)")
-            else:
-                print(f"  ✗ CORE skipped (no valid API key)")
-                self.session_metadata['failed_engines'].append("CORE (no API key)")
-            
-            if is_valid_key(self.api_keys.get('scopus')):
-                tasks[executor.submit(scopus_utils.fetch_and_process_scopus, self.api_keys['scopus'], query, max_limit=limit_per_engine, save_csv=False)] = "SCOPUS"
-                print(f"  ✓ SCOPUS enabled (API key provided)")
-            else:
-                print(f"  ✗ SCOPUS skipped (no valid API key)")
-                self.session_metadata['failed_engines'].append("SCOPUS (no API key)")
-            
-            if is_valid_key(self.api_keys.get('springer')):
-                tasks[executor.submit(springer_utils.fetch_and_process_springer, query, max_limit=limit_per_engine)] = "Springer Nature"
 
-                print(f"  ✓ Springer Nature enabled (API key provided)")
-            else:
-                print(f"  ✗ Springer Nature skipped (no valid API key)")
-                self.session_metadata['failed_engines'].append("Springer Nature (no API key)")
-            
-            # Free Engines
-            tasks[executor.submit(arxiv_utils.fetch_and_process_arxiv, query, max_limit=limit_per_engine)] = "arXiv"
-            print(f"  ✓ arXiv enabled (free)")
-            
-            tasks[executor.submit(pubmed_utils.fetch_and_process_pubmed, query, max_limit=limit_per_engine)] = "PubMed"
-            print(f"  ✓ PubMed enabled (free)")
-            
-            tasks[executor.submit(doi_utils.fetch_and_process_doi, query, max_limit=limit_per_engine)] = "Crossref/DOI"
-            print(f"  ✓ Crossref/DOI enabled (free)")
-            
-            tasks[executor.submit(openalex_utils.fetch_and_process_openalex, query, max_limit=limit_per_engine)] = "OpenAlex"
-            print(f"  ✓ OpenAlex enabled (free)")
-            
-            tasks[executor.submit(europe_pmc_utils.fetch_and_process_europe_pmc, query, max_limit=limit_per_engine)] = "Europe PMC"
-            print(f"  ✓ Europe PMC enabled (free)")
-            
-            tasks[executor.submit(plos_utils.fetch_and_process_plos, query, max_limit=limit_per_engine)] = "PLOS"
-            print(f"  ✓ PLOS enabled (free)")
-            
-            tasks[executor.submit(ssrn_utils.fetch_and_process_ssrn, query, max_limit=limit_per_engine)] = "SSRN"
-            print(f"  ✓ SSRN enabled (free)")
-            
-            tasks[executor.submit(deepdyve_utils.fetch_and_process_deepdyve, query, max_limit=limit_per_engine)] = "DeepDyve"
-            print(f"  ✓ DeepDyve enabled (free)")
-            
-            tasks[executor.submit(wiley_utils.fetch_and_process_wiley, query, max_limit=limit_per_engine)] = "Wiley"
-            print(f"  ✓ Wiley enabled (free)")
-            
-            tasks[executor.submit(tf_utils.fetch_and_process_tf, query, max_limit=limit_per_engine)] = "Taylor & Francis"
-            print(f"  ✓ Taylor & Francis enabled (free)")
-            
-            tasks[executor.submit(acm_utils.fetch_and_process_acm, query, max_limit=limit_per_engine)] = "ACM Digital Library"
-            print(f"  ✓ ACM Digital Library enabled (free)")
-            
-            tasks[executor.submit(dblp_utils.fetch_and_process_dblp, query, max_limit=limit_per_engine)] = "DBLP"
-            print(f"  ✓ DBLP enabled (free)")
-            
-            tasks[executor.submit(sage_utils.fetch_and_process_sage, query, max_limit=limit_per_engine)] = "SAGE Journals"
-            print(f"  ✓ SAGE Journals enabled (free)")
+            disabled = set(self.config.get('disabled_engines') or [])
+            k = self.api_keys
+            L = limit_per_engine
+            # (name, required API key or None, callable, args, kwargs)
+            engines = [
+                ("Semantic Scholar", 's2', s2_utils.fetch_and_process_papers, (k.get('s2'), query), {'csv_limit': L}),
+                ("Google Scholar", 'serp', scholar_utils.fetch_and_process_scholar, (k.get('serp'), query), {'max_limit': L}),
+                ("CORE", 'core', core_utils.fetch_and_process_core, (k.get('core'), query), {'max_limit': L}),
+                ("SCOPUS", 'scopus', scopus_utils.fetch_and_process_scopus, (k.get('scopus'), query), {'max_limit': L, 'save_csv': False}),
+                ("Springer Nature", 'springer', springer_utils.fetch_and_process_springer, (query,), {'max_limit': L}),
+                ("arXiv", None, arxiv_utils.fetch_and_process_arxiv, (query,), {'max_limit': L}),
+                ("PubMed", None, pubmed_utils.fetch_and_process_pubmed, (query,), {'max_limit': L}),
+                ("Crossref/DOI", None, doi_utils.fetch_and_process_doi, (query,), {'max_limit': L}),
+                ("OpenAlex", None, openalex_utils.fetch_and_process_openalex, (query,), {'max_limit': L}),
+                ("Europe PMC", None, europe_pmc_utils.fetch_and_process_europe_pmc, (query,), {'max_limit': L}),
+                ("PLOS", None, plos_utils.fetch_and_process_plos, (query,), {'max_limit': L}),
+                ("SSRN", None, ssrn_utils.fetch_and_process_ssrn, (query,), {'max_limit': L}),
+                ("DeepDyve", None, deepdyve_utils.fetch_and_process_deepdyve, (query,), {'max_limit': L}),
+                ("Wiley", None, wiley_utils.fetch_and_process_wiley, (query,), {'max_limit': L}),
+                ("Taylor & Francis", None, tf_utils.fetch_and_process_tf, (query,), {'max_limit': L}),
+                ("ACM Digital Library", None, acm_utils.fetch_and_process_acm, (query,), {'max_limit': L}),
+                ("DBLP", None, dblp_utils.fetch_and_process_dblp, (query,), {'max_limit': L}),
+                ("SAGE Journals", None, sage_utils.fetch_and_process_sage, (query,), {'max_limit': L}),
+            ]
+            for name, key_name, fn, args, kwargs in engines:
+                if name in disabled:
+                    print(f"  ⏸  {name} disabled by user")
+                    self.session_metadata.setdefault('disabled_engines', []).append(name)
+                    continue
+                if key_name and not is_valid_key(k.get(key_name)):
+                    print(f"  ✗ {name} skipped (no valid API key)")
+                    self.session_metadata['failed_engines'].append(f"{name} (no API key)")
+                    continue
+                tasks[executor.submit(fn, *args, **kwargs)] = name
+                print(f"  ✓ {name} enabled")
 
             combined_results = []
             for future in concurrent.futures.as_completed(tasks):
@@ -522,6 +494,7 @@ class ResearchOrchestrator:
                             p['abstract'] = clean_abstract(p.get('abstract'))
                             if p['abstract']:
                                 p.setdefault('abstract_source', engine_name)
+                            p['found_in'] = engine_name
                         combined_results.extend(data)
                         self.session_metadata['successful_engines'].append(engine_name)
                         self.session_metadata['total_api_calls'] += 1
@@ -649,6 +622,16 @@ class ResearchOrchestrator:
             if self.session_metadata['failed_engines']:
                 f.write(f"Failed Engines: {', '.join(self.session_metadata['failed_engines'])}\n")
 
+            if self.session_metadata.get('disabled_engines'):
+                f.write(f"Disabled by user: {', '.join(self.session_metadata['disabled_engines'])}\n")
+
+            if self.session_metadata.get('enrichment_log'):
+                f.write("\n" + "="*60 + "\n")
+                f.write("ABSTRACT / METADATA ENRICHMENT:\n")
+                f.write("="*60 + "\n")
+                for line in self.session_metadata['enrichment_log']:
+                    f.write(line + "\n")
+
             f.write("\n" + "="*60 + "\n")
             f.write("CONFIGURATION USED:\n")
             f.write("="*60 + "\n")
@@ -721,7 +704,7 @@ class ResearchOrchestrator:
         csv_filename = os.path.join(self.output_dir, "MASTER_REPORT_FINAL.csv")
         keys = ['relevance_score', 'source_count', 'ieee_authors', 'title', 'venue', 'year',
                 'citations', 'impact_factor', 'h_index', 'influential_citations',
-                'doi', 'url', 'abstract', 'abstract_source', 'keywords', 'tldr', 'recency_boosted']
+                'doi', 'url', 'abstract', 'abstract_source', 'found_in', 'keywords', 'tldr', 'recency_boosted']
 
         with open(csv_filename, 'w', newline='', encoding='utf-8') as f:
             writer = csv.DictWriter(f, fieldnames=keys)

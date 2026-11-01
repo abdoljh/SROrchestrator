@@ -11,6 +11,9 @@ beautifulsoup4
 google-search-results
 serpapi
 
+# Claude API (Reviewer)
+anthropic>=2.3.0
+
 # Additional utilities
 requests>=2.31.0
 python-dotenv>=1.0.0
