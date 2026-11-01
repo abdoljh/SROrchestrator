@@ -3,6 +3,7 @@ import csv
 import re
 import requests
 from datetime import datetime
+from query_utils import safe_query_slug, clean_abstract
 
 def format_core_authors(authors_list):
     """Standardized IEEE author formatting: I. Surname."""
@@ -96,16 +97,17 @@ def fetch_and_process_core(api_key, query, max_limit=20, save_csv=True):
             'year': item.get('yearPublished', 'n.d.'),
             'citations': "N/A",
             'doi': item.get('doi', 'N/A'),
-            'url': item.get('downloadUrl') or f"https://core.ac.uk/works/{item.get('id')}"
+            'url': item.get('downloadUrl') or f"https://core.ac.uk/works/{item.get('id')}",
+            'abstract': clean_abstract(item.get('abstract')),
         })
 
     processed_data.sort(key=lambda x: x['sort_name'].lower())
 
     if save_csv and processed_data:
-        clean_q = re.sub(r'[^\w\s-]', '', query).strip().replace(' ', '_')
+        clean_q = safe_query_slug(query)
         filename = f"core_bulk_{clean_q}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
         with open(filename, 'w', newline='', encoding='utf-8') as f:
-            writer = csv.DictWriter(f, fieldnames=['ieee_authors', 'title', 'venue', 'year', 'citations', 'doi', 'url'])
+            writer = csv.DictWriter(f, fieldnames=['ieee_authors', 'title', 'venue', 'year', 'citations', 'doi', 'url', 'abstract'], extrasaction='ignore')
             writer.writeheader()
             for row in processed_data:
                 writer.writerow({k: v for k, v in row.items() if k != 'sort_name'})

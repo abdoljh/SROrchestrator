@@ -5,6 +5,7 @@ import os
 import csv
 import time
 from datetime import datetime
+from query_utils import safe_query_slug, clean_abstract, to_plos_query
 
 def format_plos_authors(author_list):
     """
@@ -49,8 +50,8 @@ def fetch_and_process_plos(query, max_limit=20, save_csv=True):
     # Parameters for the search
     # 'fl' defines the field list we want returned
     params = {
-        "q": 'title:"' + query + '" OR abstract:"' + query + '"',
-        "fl": "author_display,title,journal,publication_date,id,counter_total_all",
+        "q": to_plos_query(query),
+        "fl": "author_display,title,journal,publication_date,id,counter_total_all,abstract",
         "wt": "json",       # Response format
         "rows": max_limit   # Number of results
     }
@@ -94,7 +95,8 @@ def fetch_and_process_plos(query, max_limit=20, save_csv=True):
                 # PLOS uses 'counter_total_all' for total views/usage as a metric
                 'citations': int(entry.get('counter_total_all', 0)),
                 'doi': entry_id, # 'id' in PLOS is the DOI
-                'url': f"https://journals.plos.org/plosone/article?id={entry_id}"
+                'url': f"https://journals.plos.org/plosone/article?id={entry_id}",
+                'abstract': clean_abstract(entry.get('abstract')),
             })
 
         # Sort by Author Name
@@ -102,11 +104,11 @@ def fetch_and_process_plos(query, max_limit=20, save_csv=True):
 
         # Save to Unique CSV
         if save_csv and processed_data:
-            clean_q = re.sub(r"[^\w\s-]", "", query).strip().replace(" ", "_")
+            clean_q = safe_query_slug(query)
             filename = f"plos_{clean_q}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
 
             with open(filename, 'w', newline='', encoding='utf-8') as f:
-                writer = csv.DictWriter(f, fieldnames=['ieee_authors', 'title', 'venue', 'year', 'citations', 'doi', 'url'])
+                writer = csv.DictWriter(f, fieldnames=['ieee_authors', 'title', 'venue', 'year', 'citations', 'doi', 'url', 'abstract'], extrasaction='ignore')
                 writer.writeheader()
                 for row in processed_data:
                     # Filter out the helper sort_name key

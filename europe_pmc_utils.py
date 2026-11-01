@@ -3,6 +3,7 @@ import re
 import csv
 import time  # Added for API respect
 from datetime import datetime
+from query_utils import safe_query_slug, clean_abstract
 
 def format_epmc_authors(author_str):
     if not author_str:
@@ -55,16 +56,17 @@ def fetch_and_process_europe_pmc(query, max_limit=20, save_csv=True):
                 'year': entry.get('pubYear', 'n.d.'),
                 'citations': int(entry.get('citedByCount', 0)),
                 'doi': entry.get('doi', 'N/A'),
-                'url': f"https://europepmc.org/article/MED/{entry.get('id')}" if 'id' in entry else ""
+                'url': f"https://europepmc.org/article/MED/{entry.get('id')}" if 'id' in entry else "",
+                'abstract': clean_abstract(entry.get('abstractText')),
             })
             
         processed.sort(key=lambda x: x['sort_name'].lower())
 
         if save_csv and processed:
-            clean_q = re.sub(r"[^\w\s-]", "", query).strip().replace(" ", "_")
+            clean_q = safe_query_slug(query)
             filename = f"epmc_{clean_q}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
             with open(filename, 'w', newline='', encoding='utf-8') as f:
-                writer = csv.DictWriter(f, fieldnames=['ieee_authors', 'title', 'venue', 'year', 'citations', 'doi', 'url'])
+                writer = csv.DictWriter(f, fieldnames=['ieee_authors', 'title', 'venue', 'year', 'citations', 'doi', 'url', 'abstract'], extrasaction='ignore')
                 writer.writeheader()
                 for row in processed:
                     writer.writerow({k: v for k, v in row.items() if k != 'sort_name'})

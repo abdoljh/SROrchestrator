@@ -5,6 +5,7 @@ import re
 import time
 import os
 from datetime import datetime
+from query_utils import safe_query_slug, clean_abstract, to_plain_keywords
 
 def format_tf_authors(author_list):
     """
@@ -46,11 +47,11 @@ def fetch_and_process_tf(query, max_limit=10, save_csv=True):
     base_url = "https://api.crossref.org/works"
     
     params = {
-        "query": query,
+        "query": to_plain_keywords(query),
         # Filter 10.1080 targets Taylor & Francis Group
         "filter": "prefix:10.1080",
         "rows": max_limit,
-        "select": "DOI,title,author,container-title,published-print,URL"
+        "select": "DOI,title,author,container-title,published-print,URL,abstract"
     }
 
     # CrossRef 'Polite' User-Agent (recommended to include your email)
@@ -100,7 +101,8 @@ def fetch_and_process_tf(query, max_limit=10, save_csv=True):
                 'year': year,
                 'citations': 0, # CrossRef does not provide live citation counts
                 'doi': doi or 'N/A',
-                'url': entry.get('URL', '')
+                'url': entry.get('URL', ''),
+                'abstract': clean_abstract(entry.get('abstract')),
             })
             
         # Sort by Author Name
@@ -108,11 +110,11 @@ def fetch_and_process_tf(query, max_limit=10, save_csv=True):
 
         # Save to Unique CSV
         if save_csv and processed_data:
-            clean_q = re.sub(r"[^\w\s-]", "", query).strip().replace(" ", "_")
+            clean_q = safe_query_slug(query)
             filename = f"tf_{clean_q}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
 
             with open(filename, 'w', newline='', encoding='utf-8') as f:
-                writer = csv.DictWriter(f, fieldnames=['ieee_authors', 'title', 'venue', 'year', 'citations', 'doi', 'url'])
+                writer = csv.DictWriter(f, fieldnames=['ieee_authors', 'title', 'venue', 'year', 'citations', 'doi', 'url', 'abstract'], extrasaction='ignore')
                 writer.writeheader()
                 for row in processed_data:
                     # Filter out the helper sort_name key

@@ -5,6 +5,7 @@ import re
 import os
 import time
 from datetime import datetime
+from query_utils import safe_query_slug, clean_abstract
 
 def format_scopus_authors(author_str):
     """Converts Scopus author string 'Surname, I.' into IEEE 'I. Surname'."""
@@ -108,6 +109,7 @@ def fetch_and_process_scopus(api_key, query, max_limit=20, save_csv=True):
                 'url': entry.get('link', [{}])[2].get('@href', ''),
                 'impact_factor': sjr,  # SJR as impact factor proxy
                 'h_index': None,       # Not available in Scopus search results
+                'abstract': clean_abstract(entry.get('dc:description')),
             })
             
         # Sort by Author Name
@@ -115,11 +117,11 @@ def fetch_and_process_scopus(api_key, query, max_limit=20, save_csv=True):
 
         # Save to Unique CSV
         if save_csv and processed_data:
-            clean_q = re.sub(r"[^\w\s-]", "", query).strip().replace(" ", "_")
+            clean_q = safe_query_slug(query)
             filename = f"scopus_{clean_q}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
 
             with open(filename, 'w', newline='', encoding='utf-8') as f:
-                writer = csv.DictWriter(f, fieldnames=['ieee_authors', 'title', 'venue', 'year', 'citations', 'doi', 'url'])
+                writer = csv.DictWriter(f, fieldnames=['ieee_authors', 'title', 'venue', 'year', 'citations', 'doi', 'url', 'abstract'], extrasaction='ignore')
                 writer.writeheader()
                 for row in processed_data:
                     # Filter out the helper sort_name key
