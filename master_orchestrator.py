@@ -41,7 +41,7 @@ import gap_utils
 from gap_utils import analyze_research_gaps
 
 # Query / abstract helpers
-from query_utils import safe_query_slug, clean_abstract, NO_ABSTRACT
+from query_utils import safe_query_slug, clean_abstract, NO_ABSTRACT, wildcard_terms, expand_wildcards
 from enrichment import AbstractEnricher, is_unknown_author
 
 load_dotenv()
@@ -441,6 +441,8 @@ class ResearchOrchestrator:
 
         self.create_output_directory(query)
         print(f"\n[Master] Orchestrating search for: '{query}'...")
+        import crossref_common
+        crossref_common.INCLUDE_REFERENCE_ENTRIES = bool(self.config.get('include_reference_entries', False))
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
             tasks = {}
@@ -449,6 +451,30 @@ class ResearchOrchestrator:
                 return key and isinstance(key, str) and len(key.strip()) > 5
 
             disabled = set(self.config.get('disabled_engines') or [])
+
+            # Many engines silently ignore trailing wildcards (co-pyroly* matches
+            # nothing in OpenAlex/Scholar/...). Pre-compute an expanded query and
+            # retry any engine that returns nothing with it.
+            expanded_query = expand_wildcards(query) if wildcard_terms(query) else None
+            if expanded_query:
+                print(f"  ✱ Wildcards expanded for retries: {expanded_query[:160]}...")
+                self.session_metadata['expanded_query'] = expanded_query
+            retried = self.session_metadata.setdefault('wildcard_retries', [])
+
+            def run_engine(name, fn, args, kwargs):
+                first_error = None
+                try:
+                    res = fn(*args, **kwargs)
+                except Exception as e:
+                    res, first_error = None, e
+                if res or not expanded_query:
+                    if first_error:
+                        raise first_error
+                    return res
+                args2 = tuple(expanded_query if a == query else a for a in args)
+                res = fn(*args2, **kwargs)
+                retried.append(f"{name}: {len(res or [])} papers")
+                return res
             k = self.api_keys
             L = limit_per_engine
             # (name, required API key or None, callable, args, kwargs)
@@ -481,7 +507,7 @@ class ResearchOrchestrator:
                     print(f"  ✗ {name} skipped (no valid API key)")
                     self.session_metadata['failed_engines'].append(f"{name} (no API key)")
                     continue
-                tasks[executor.submit(fn, *args, **kwargs)] = name
+                tasks[executor.submit(run_engine, name, fn, args, kwargs)] = name
                 print(f"  ✓ {name} enabled")
 
             combined_results = []
@@ -506,7 +532,7 @@ class ResearchOrchestrator:
                 except Exception as e:
                     print(f"  ⚠️  {engine_name} failed: {e}")
                     if engine_name not in self.session_metadata['failed_engines']:
-                        self.session_metadata['failed_engines'].append(f"{engine_name} (error: {str(e)[:50]})")
+                        self.session_metadata['failed_engines'].append(f"{engine_name} (error: {str(e)[:160]})")
 
         final_list = self.deduplicate_and_score(combined_results)
 
@@ -621,6 +647,10 @@ class ResearchOrchestrator:
 
             if self.session_metadata['failed_engines']:
                 f.write(f"Failed Engines: {', '.join(self.session_metadata['failed_engines'])}\n")
+
+            if self.session_metadata.get('wildcard_retries'):
+                f.write(f"Retried with expanded wildcards: {', '.join(self.session_metadata['wildcard_retries'])}\n")
+                f.write(f"  Expanded query: {self.session_metadata.get('expanded_query', '')}\n")
 
             if self.session_metadata.get('disabled_engines'):
                 f.write(f"Disabled by user: {', '.join(self.session_metadata['disabled_engines'])}\n")

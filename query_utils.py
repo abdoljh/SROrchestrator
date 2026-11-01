@@ -158,6 +158,67 @@ def to_dblp_query(query: str) -> str:
     return " ".join(parts) or to_plain_keywords(query)
 
 
+# ----------------------------------------------
+# Wildcard expansion (for engines that ignore trailing '*')
+# ----------------------------------------------
+
+_WILDCARD_RE = re.compile(r'(?<!["\w])([A-Za-z][\w-]*?)\*')
+# Fallback endings when no word list is reachable; covers common scientific forms
+# (pyroly* -> pyrolysis/pyrolytic/pyrolyzed, catal* -> catalyst/catalytic, ...)
+_FALLBACK_SUFFIXES = ["", "s", "sis", "tic", "se", "sed", "ze", "zed", "ses", "zing", "ed",
+                      "ing", "ion", "ions", "ic", "ical", "er", "ers", "y", "ies"]
+_EXPANSION_CACHE: Dict[str, List[str]] = {}
+
+
+def wildcard_terms(query: str) -> List[str]:
+    """Return the wildcard stems in a query, e.g. ['co-pyroly', 'copyroly']."""
+    return list(dict.fromkeys(_WILDCARD_RE.findall(query or "")))
+
+
+def _lookup_words(stem: str, max_words: int) -> List[str]:
+    """Real English/scientific words starting with `stem` (Datamuse, no key needed)."""
+    try:
+        import requests
+        r = requests.get("https://api.datamuse.com/words",
+                         params={"sp": f"{stem.lower()}*", "max": 40}, timeout=6)
+        if r.status_code == 200:
+            words = [w["word"] for w in r.json() if " " not in w.get("word", "")]
+            return words[:max_words]
+    except Exception:
+        pass
+    return []
+
+
+def expand_stem(stem: str, max_words: int = 6) -> List[str]:
+    """
+    Expand a truncated term into whole words. Hyphenated stems keep their prefix:
+    'co-pyroly' -> ['co-pyrolysis', 'co-pyrolytic', ...].
+    """
+    key = f"{stem.lower()}|{max_words}"
+    if key in _EXPANSION_CACHE:
+        return _EXPANSION_CACHE[key]
+    prefix, _, last = stem.rpartition("-")
+    prefix = prefix + "-" if prefix else ""
+    words = _lookup_words(last, max_words) if len(last) >= 3 else []
+    if not words:
+        words = [last + suf for suf in _FALLBACK_SUFFIXES][:max(max_words, 8)]
+    out = list(dict.fromkeys(prefix + w for w in words))
+    _EXPANSION_CACHE[key] = out
+    return out
+
+
+def expand_wildcards(query: str, max_words: int = 6) -> str:
+    """
+    Replace every ``stem*`` with ``(word1 OR word2 ...)``. Used to retry
+    engines that returned nothing because they ignore truncation
+    (OpenAlex, Google Scholar, Europe PMC with hyphenated stems, ...).
+    """
+    def repl(m):
+        words = expand_stem(m.group(1), max_words)
+        return "(" + " OR ".join(f'"{w}"' if "-" in w else w for w in words) + ")" if len(words) > 1 else words[0]
+    return _WILDCARD_RE.sub(repl, query or "")
+
+
 def to_springer_query(query: str) -> str:
     """Springer Meta API accepts boolean expressions directly."""
     if is_boolean_query(query):

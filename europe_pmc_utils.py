@@ -35,7 +35,7 @@ def fetch_and_process_europe_pmc(query, max_limit=20, save_csv=True):
     try:
         response = requests.get(base_url, params=params, timeout=20)
         if response.status_code != 200:
-            return []
+            raise RuntimeError(f"Europe PMC HTTP {response.status_code}: {response.text[:120]}")
             
         entries = response.json().get('resultList', {}).get('result', [])
         processed = []
@@ -78,4 +78,4 @@ def fetch_and_process_europe_pmc(query, max_limit=20, save_csv=True):
         return processed
     except Exception as e:
         print(f"[Error] Europe PMC integration failure: {e}")
-        return []
+        raise

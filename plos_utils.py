@@ -59,8 +59,7 @@ def fetch_and_process_plos(query, max_limit=20, save_csv=True):
     try:
         response = requests.get(base_url, params=params, timeout=20)
         if response.status_code != 200:
-            print(f"[Error] PLOS API returned status: {response.status_code}")
-            return []
+            raise RuntimeError(f"PLOS HTTP {response.status_code}: {response.text[:120]}")
 
         data = response.json()
         # PLOS results are inside response -> docs
@@ -121,7 +120,7 @@ def fetch_and_process_plos(query, max_limit=20, save_csv=True):
         return processed_data
     except Exception as e:
         print(f"[Error] PLOS integration failure: {e}")
-        return []
+        raise
 
 # Example Usage:
 # results = fetch_and_process_plos("machine learning in healthcare", max_limit=5)
