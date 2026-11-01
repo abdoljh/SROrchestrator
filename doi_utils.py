@@ -3,6 +3,7 @@ import csv
 import re
 import requests
 from datetime import datetime
+from crossref_common import CROSSREF_SELECT, parse_crossref_item
 from query_utils import safe_query_slug, clean_abstract, to_plain_keywords
 
 def format_crossref_authors(authors_list):
@@ -35,9 +36,9 @@ def fetch_and_process_doi(query, max_limit=10, save_csv=True, email="your@email.
     # Using 'Polite' API etiquette by including an email in params
     params = {
         "query": to_plain_keywords(query),
-        "rows": max_limit,
+        "rows": min(max_limit * 2, 100),  # oversample: non-papers are dropped
         "mailto": email,
-        "select": "DOI,title,author,container-title,published-print,published-online,URL,is-referenced-by-count,abstract"
+        "select": CROSSREF_SELECT
     }
 
     try:
@@ -51,33 +52,18 @@ def fetch_and_process_doi(query, max_limit=10, save_csv=True, email="your@email.
 
     processed_data = []
     
+    _seen = set()
     for item in items:
-        # 1. Author Logic & Sort Key
-        authors_data = item.get("author", [])
-        display_authors = format_crossref_authors(authors_data)
-        sort_key = authors_data[0].get('family', 'Unknown') if authors_data else "Unknown"
-
-        # 2. Date Extraction (Crossref has complex nested dates)
-        year = "n.d."
-        pub_date = item.get("published-print") or item.get("published-online")
-        if pub_date and "date-parts" in pub_date:
-            year = pub_date["date-parts"][0][0]
-
-        # 3. Venue (Journal/Conference name)
-        venue_list = item.get("container-title", [])
-        venue = venue_list[0] if venue_list else "Unknown Venue"
-
-        processed_data.append({
-            'sort_name': sort_key,
-            'ieee_authors': display_authors,
-            'title': item.get('title', ['Untitled'])[0],
-            'venue': venue,
-            'year': year,
-            'citations': item.get('is-referenced-by-count', 0),
-            'doi': item.get('DOI', 'N/A'),
-            'url': item.get('URL', f"https://doi.org/{item.get('DOI')}"),
-            'abstract': clean_abstract(item.get('abstract')),
-        })
+        paper = parse_crossref_item(item, 'Unknown Venue')
+        if paper is None:  # peer reviews, supplementary files, ...
+            continue
+        key = paper['doi'].lower()
+        if key in _seen:
+            continue
+        _seen.add(key)
+        processed_data.append(paper)
+        if len(processed_data) >= max_limit:
+            break
 
     # Sort alphabetical by author
     processed_data.sort(key=lambda x: x['sort_name'].lower())

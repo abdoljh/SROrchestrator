@@ -41,8 +41,8 @@ import gap_utils
 from gap_utils import analyze_research_gaps
 
 # Query / abstract helpers
-from query_utils import (safe_query_slug, clean_abstract, reconstruct_inverted_index,
-                         NO_ABSTRACT)
+from query_utils import safe_query_slug, clean_abstract, NO_ABSTRACT
+from enrichment import AbstractEnricher, is_unknown_author
 
 load_dotenv()
 
@@ -54,6 +54,7 @@ class ResearchOrchestrator:
             'serp': os.getenv('SERP_API_KEY'),
             'core': os.getenv('CORE_API_KEY'),
             'scopus': os.getenv('SCOPUS_API_KEY'),
+            'scopus_inst': os.getenv('SCOPUS_INST_TOKEN'),
             'springer': os.getenv('META_SPRINGER_API_KEY'),
             'email': os.getenv('USER_EMAIL', 'researcher@example.com'),
         }
@@ -71,9 +72,13 @@ class ResearchOrchestrator:
             'recency_years': 3,
             'recency_multiplier': 1.5,
             'enrich_abstracts': True,
+            'scrape_landing_pages': True,
+            'landing_page_limit': 40,
         }
         # Older/partial configs (e.g. from the Streamlit UI) get the default
         self.config.setdefault('enrich_abstracts', True)
+        self.config.setdefault('scrape_landing_pages', True)
+        self.config.setdefault('landing_page_limit', 40)
 
         self.session_metadata = {
             'start_time': None,
@@ -106,18 +111,8 @@ class ResearchOrchestrator:
     _UNKNOWN_AUTHOR_PATTERNS = {'unknown author', 'unknown authors', 'unknown', 'research team', ''}
 
     def _is_unknown_author(self, authors_str):
-        """Check if an author string is a placeholder/unknown value."""
-        if not authors_str or not isinstance(authors_str, str):
-            return True
-        cleaned = authors_str.strip().lower()
-        if cleaned in self._UNKNOWN_AUTHOR_PATTERNS:
-            return True
-        # Catch "Unknown et al.", "Unknown Author et al.", etc.
-        if 'et al' in cleaned:
-            name_part = re.split(r'\s+et\s+al', cleaned)[0].strip().rstrip(',').strip()
-            if not name_part or name_part in self._UNKNOWN_AUTHOR_PATTERNS:
-                return True
-        return False
+        """Placeholder author values ("Unknown Author", "Unknown et al.", "Unknown and X")."""
+        return is_unknown_author(authors_str)
 
     def deduplicate_and_score(self, all_papers):
         unique_papers = {}
@@ -149,6 +144,13 @@ class ResearchOrchestrator:
                 new_authors = paper.get('ieee_authors', '')
                 if self._is_unknown_author(existing_authors) and not self._is_unknown_author(new_authors):
                     unique_papers[key]['ieee_authors'] = new_authors
+
+                # Merge venue / year when the first copy lacked them
+                if str(unique_papers[key].get('venue', '')).strip().lower() in ('', 'unknown venue', 'unknown journal', 'n/a') \
+                        and paper.get('venue') and 'unknown' not in str(paper['venue']).lower():
+                    unique_papers[key]['venue'] = paper['venue']
+                if not str(unique_papers[key].get('year', '')).isdigit() and str(paper.get('year', '')).isdigit():
+                    unique_papers[key]['year'] = paper['year']
 
                 # Merge abstracts: keep the most complete one
                 existing = unique_papers[key]
@@ -227,100 +229,13 @@ class ResearchOrchestrator:
 
         return sorted(unique_papers.values(), key=lambda x: x['relevance_score'], reverse=True)
 
-    @staticmethod
-    def _norm_doi(doi):
-        doi = str(doi or '').strip().lower()
-        for prefix in ('https://doi.org/', 'http://doi.org/', 'http://dx.doi.org/', 'doi:'):
-            if doi.startswith(prefix):
-                doi = doi[len(prefix):]
-        return '' if doi in ('', 'n/a', 'none') or not doi.startswith('10.') else doi
-
-    def enrich_missing_abstracts(self, papers, batch_size=50):
+    def enrich_missing_abstracts(self, papers):
         """
-        Fill in abstracts for papers whose engine did not return one, using
-        batched DOI look-ups (OpenAlex first, then Semantic Scholar). Only a
-        handful of HTTP requests are needed even for hundreds of papers.
-        Papers with no abstract anywhere fall back to the Google Scholar
-        snippet, clearly marked as such.
+        Fill in missing abstracts (and Unknown authors / venue / year) via the
+        enrichment chain in enrichment.py: OpenAlex -> Europe PMC -> Semantic
+        Scholar -> Elsevier API (SCOPUS_API_KEY) -> Springer -> publisher page.
         """
-        import requests
-
-        def missing():
-            out = {}
-            for p in papers:
-                if not clean_abstract(p.get('abstract')):
-                    d = self._norm_doi(p.get('doi'))
-                    if d:
-                        out.setdefault(d, []).append(p)
-            return out
-
-        def apply(doi, text, source):
-            text = clean_abstract(text)
-            if not text:
-                return 0
-            for p in todo.get(doi, []):
-                p['abstract'] = text
-                p['abstract_source'] = source
-            return 1
-
-        before = sum(1 for p in papers if clean_abstract(p.get('abstract')))
-        print(f"\n[Abstracts] {before}/{len(papers)} papers have abstracts from the search engines")
-
-        # 1. OpenAlex (free, no key): filter=doi:a|b|c
-        todo = missing()
-        dois = list(todo)
-        for i in range(0, len(dois), batch_size):
-            chunk = dois[i:i + batch_size]
-            try:
-                r = requests.get(
-                    "https://api.openalex.org/works",
-                    params={'filter': 'doi:' + '|'.join(chunk), 'per-page': batch_size,
-                            'select': 'doi,abstract_inverted_index',
-                            'mailto': self.api_keys.get('email') or ''},
-                    timeout=20)
-                if r.status_code == 200:
-                    for w in r.json().get('results', []):
-                        apply(self._norm_doi(w.get('doi')),
-                              reconstruct_inverted_index(w.get('abstract_inverted_index')), 'OpenAlex')
-            except Exception as e:
-                print(f"  ⚠️ OpenAlex abstract lookup failed: {e}")
-                break
-
-        # 2. Semantic Scholar batch endpoint (works with or without key)
-        todo = missing()
-        dois = list(todo)
-        headers = {"x-api-key": self.api_keys['s2']} if self.api_keys.get('s2') else {}
-        for i in range(0, len(dois), 100):
-            chunk = dois[i:i + 100]
-            try:
-                r = requests.post(
-                    "https://api.semanticscholar.org/graph/v1/paper/batch",
-                    params={'fields': 'externalIds,abstract,tldr'},
-                    json={'ids': [f"DOI:{d}" for d in chunk]},
-                    headers=headers, timeout=25)
-                if r.status_code != 200:
-                    break
-                for d, item in zip(chunk, r.json()):
-                    if not item:
-                        continue
-                    apply(d, item.get('abstract'), 'Semantic Scholar')
-                    tldr = (item.get('tldr') or {}).get('text')
-                    if tldr:
-                        for p in todo.get(d, []):
-                            p.setdefault('tldr', tldr)
-            except Exception as e:
-                print(f"  ⚠️ Semantic Scholar abstract lookup failed: {e}")
-                break
-
-        # 3. Last resort: Google Scholar snippet
-        for p in papers:
-            if not clean_abstract(p.get('abstract')) and p.get('snippet'):
-                p['abstract'] = f"[Snippet] {p['snippet']}"
-                p['abstract_source'] = 'Google Scholar (snippet)'
-
-        after = sum(1 for p in papers if clean_abstract(p.get('abstract')))
-        print(f"[Abstracts] {after}/{len(papers)} papers have abstracts after enrichment (+{after - before})")
-        return papers
+        return AbstractEnricher(self.api_keys, self.config).run(papers)
 
     def fetch_abstracts_for_top_papers(self, top_papers, limit=None):
         limit = limit or self.config['abstract_limit']

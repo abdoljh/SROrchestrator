@@ -2490,6 +2490,8 @@ def execute_report_pipeline():
             for key, value in api_keys.items():
                 if key != 'email' and value and len(value) > 5:
                     os.environ[f"{key.upper()}_API_KEY"] = value
+                    if key == 'springer':  # springer_utils reads META_SPRINGER_API_KEY
+                        os.environ['META_SPRINGER_API_KEY'] = value
                 elif key == 'email' and value:
                     os.environ['USER_EMAIL'] = value
             
@@ -2862,6 +2864,16 @@ def main():
                 options=['csv', 'json', 'bibtex'],
                 default=['csv', 'json', 'bibtex']
             )
+
+        with st.expander("Abstract Enrichment"):
+            scrape_landing_pages = st.checkbox(
+                "Read abstracts from publisher pages", value=True,
+                help="For papers whose abstract no API provides (e.g. Elsevier/ScienceDirect), "
+                     "open the DOI landing page and read the abstract. Slower; some publishers block it."
+            )
+            landing_page_limit = st.slider("Max publisher pages", 0, 150, 60, step=10)
+            st.caption("💡 A SCOPUS_API_KEY (dev.elsevier.com) also unlocks ScienceDirect abstracts "
+                       "via Elsevier's API.")
         
         # Build configuration
         config = {
@@ -2874,7 +2886,10 @@ def main():
             'export_formats': export_formats,
             'recency_boost': recency_boost,
             'recency_years': recency_years,
-            'recency_multiplier': recency_multiplier
+            'recency_multiplier': recency_multiplier,
+            'enrich_abstracts': True,
+            'scrape_landing_pages': scrape_landing_pages and landing_page_limit > 0,
+            'landing_page_limit': landing_page_limit,
         }
     
     # Main content area - 4 TABS
@@ -2934,6 +2949,8 @@ def main():
                     for key, value in api_keys.items():
                         if key != 'email' and value and len(value) > 5:
                             os.environ[f"{key.upper()}_API_KEY"] = value
+                            if key == 'springer':  # springer_utils reads META_SPRINGER_API_KEY
+                                os.environ['META_SPRINGER_API_KEY'] = value
                         elif key == 'email' and value:
                             os.environ['USER_EMAIL'] = value
                     
