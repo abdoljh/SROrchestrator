@@ -5,6 +5,7 @@ import re
 import time
 import os
 from datetime import datetime
+from crossref_common import CROSSREF_SELECT, parse_crossref_item
 from query_utils import safe_query_slug, clean_abstract, to_plain_keywords
 
 def format_wiley_authors(author_list):
@@ -51,8 +52,8 @@ def fetch_and_process_wiley(query, max_limit=10, save_csv=True):
         "query": to_plain_keywords(query),
         # Filter 10.1002 ensures results are specifically from Wiley
         "filter": "prefix:10.1002",
-        "rows": max_limit,
-        "select": "DOI,title,author,container-title,published-print,URL,abstract"
+        "rows": min(max_limit * 2, 100),  # oversample: non-papers are dropped
+        "select": CROSSREF_SELECT
     }
 
     # CrossRef 'Polite' User-Agent
@@ -71,40 +72,18 @@ def fetch_and_process_wiley(query, max_limit=10, save_csv=True):
         processed_data = []
         seen_dois = set()
 
+        _seen = set()
         for entry in entries:
-            # Deduplication by DOI
-            doi = entry.get('DOI', '')
-            if doi and doi in seen_dois:
+            paper = parse_crossref_item(entry, 'Wiley Online Library')
+            if paper is None:  # peer reviews, supplementary files, ...
                 continue
-            if doi:
-                seen_dois.add(doi)
-
-            # Extract Year
-            pub_parts = entry.get('published-print', {}).get('date-parts', [[None]])[0]
-            year = str(pub_parts[0]) if pub_parts[0] else 'n.d.'
-
-            # Title handling (returned as list)
-            titles = entry.get('title', ['No Title'])
-            title = titles[0] if titles else 'No Title'
-            
-            # Venue (Journal name)
-            venues = entry.get('container-title', ['Wiley Online Library'])
-            venue = venues[0] if venues else 'Wiley Online Library'
-
-            # Format authors and get sort key
-            ieee_authors, sort_key = format_wiley_authors(entry.get('author'))
-
-            processed_data.append({
-                'sort_name': sort_key,
-                'ieee_authors': ieee_authors,
-                'title': title,
-                'venue': venue,
-                'year': year,
-                'citations': 0, # CrossRef metadata is free but excludes live citation counts
-                'doi': doi or 'N/A',
-                'url': entry.get('URL', ''),
-                'abstract': clean_abstract(entry.get('abstract')),
-            })
+            key = paper['doi'].lower()
+            if key in _seen:
+                continue
+            _seen.add(key)
+            processed_data.append(paper)
+            if len(processed_data) >= max_limit:
+                break
             
         # Sort by Author Name
         processed_data.sort(key=lambda x: x['sort_name'].lower())

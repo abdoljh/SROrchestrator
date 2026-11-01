@@ -20,7 +20,8 @@ SROrch revolutionizes academic research by orchestrating searches across 18 scho
 - **Consensus Detection** alerts for papers found in 4+ databases
 - **Recency-Weighted Scoring** with logarithmic citation damping and age decay
 - **Long Boolean Queries** — e.g. `("oily sludge" OR "refinery sludge") AND (co-pyroly* OR copyroly*) AND (...)`; each engine receives the query in its own dialect (S2 `+ | -`, DBLP `|`, Crossref keywords, Solr for PLOS), and output folders/files use a short hashed slug so long queries never hit the 255-byte filename limit
-- **Abstracts for Every Paper** — extracted directly from each engine's results (OpenAlex, Crossref JATS, PubMed/Europe PMC structured abstracts, arXiv, S2, CORE, PLOS, Springer, Scopus), merged across duplicates (most complete wins), then gaps filled via batched DOI look-ups (OpenAlex → Semantic Scholar). The `abstract_source` column records where each one came from
+- **Abstracts for Every Paper** — extracted directly from each engine's results (OpenAlex, Crossref JATS, PubMed/Europe PMC structured abstracts, arXiv, S2, CORE, PLOS, Springer, Scopus), merged across duplicates (most complete wins), then gaps filled by an enrichment chain: OpenAlex → Europe PMC → Semantic Scholar → Elsevier API (with `SCOPUS_API_KEY`; Elsevier withholds ScienceDirect abstracts from the open indexes) → Springer → the publisher's landing page. The `abstract_source` column records where each one came from
+- **Clean Crossref results** — peer-review reports, decision letters and supplementary files are dropped; editor-only books show editors; years come from Crossref's `issued` date; missing authors/venues are repaired from OpenAlex / Semantic Scholar
 
 ### 🛡️ Strict Verification System (NEW)
 - **Automated Claim Verification** - Every quantitative claim checked against sources

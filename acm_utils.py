@@ -4,6 +4,7 @@ import csv
 import time
 import re
 from datetime import datetime
+from crossref_common import CROSSREF_SELECT, parse_crossref_item
 from query_utils import safe_query_slug, clean_abstract, to_plain_keywords
 
 def format_acm_authors(author_list):
@@ -52,8 +53,8 @@ def fetch_and_process_acm(query, max_limit=10, save_csv=True):
         "query": to_plain_keywords(query),
         # 10.1145 is the unique DOI owner prefix for ACM
         "filter": "prefix:10.1145",
-        "rows": max_limit,
-        "select": "DOI,title,author,container-title,published-print,URL,abstract"
+        "rows": min(max_limit * 2, 100),  # oversample: non-papers are dropped
+        "select": CROSSREF_SELECT
     }
 
     # CrossRef 'Polite' User-Agent is recommended
@@ -76,39 +77,18 @@ def fetch_and_process_acm(query, max_limit=10, save_csv=True):
         processed_data = []
         seen_ids = set()
 
+        _seen = set()
         for entry in entries:
-            # Deduplication
-            entry_id = entry.get('DOI', '')
-            if entry_id in seen_ids:
+            paper = parse_crossref_item(entry, 'ACM Digital Library')
+            if paper is None:  # peer reviews, supplementary files, ...
                 continue
-            seen_ids.add(entry_id)
-
-            # Extract Year from publication date parts
-            pub_parts = entry.get('published-print', {}).get('date-parts', [[None]])[0]
-            year = str(pub_parts[0]) if pub_parts[0] else 'n.d.'
-
-            # Title handling (standardize list to string)
-            titles = entry.get('title', ['No Title'])
-            title = titles[0] if titles else 'No Title'
-
-            # Venue (Journal or Conference proceedings name)
-            venues = entry.get('container-title', ['ACM Digital Library'])
-            venue = venues[0] if venues else 'ACM Digital Library'
-
-            # Format authors and get sort key
-            ieee_authors, sort_key = format_acm_authors(entry.get('author'))
-
-            processed_data.append({
-                'sort_name': sort_key,
-                'ieee_authors': ieee_authors,
-                'title': title,
-                'venue': venue,
-                'year': year,
-                'citations': 0, # Live citation counts require CrossRef CitedBy participation
-                'doi': entry_id,
-                'url': entry.get('URL', ''),
-                'abstract': clean_abstract(entry.get('abstract')),
-            })
+            key = paper['doi'].lower()
+            if key in _seen:
+                continue
+            _seen.add(key)
+            processed_data.append(paper)
+            if len(processed_data) >= max_limit:
+                break
 
         # Sort by Author Name
         processed_data.sort(key=lambda x: x['sort_name'].lower())
