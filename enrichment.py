@@ -106,6 +106,12 @@ class AbstractEnricher:
         self.config = config or {}
         self.log = log
         self.stats: Dict[str, int] = {}
+        # Diagnostics: e.g. {"Publisher page": {"HTTP 403": 12, "no abstract in page": 3}}
+        self.diag: Dict[str, Dict[str, int]] = {}
+
+    def _note(self, step, outcome):
+        d = self.diag.setdefault(step, {})
+        d[outcome] = d.get(outcome, 0) + 1
 
     # ---------------------------------------------- bookkeeping
 
@@ -237,6 +243,7 @@ class AbstractEnricher:
         try:
             r = _get(f"https://api.elsevier.com/content/article/doi/{doi}",
                      params={'view': 'META_ABS'}, headers=headers, timeout=15, retries=2)
+            self._note('Elsevier Article API', f"HTTP {r.status_code}")
             if r.status_code == 200:
                 core = r.json().get('full-text-retrieval-response', {}).get('coredata', {})
                 authors = core.get('dc:creator') or []
@@ -252,6 +259,7 @@ class AbstractEnricher:
         try:
             r = _get(f"https://api.elsevier.com/content/abstract/doi/{doi}",
                      params={'view': 'META_ABS'}, headers=headers, timeout=15, retries=2)
+            self._note('Elsevier Abstract API', f"HTTP {r.status_code}")
             if r.status_code == 200:
                 core = r.json().get('abstracts-retrieval-response', {}).get('coredata', {})
                 return core.get('dc:description'), None
@@ -261,6 +269,9 @@ class AbstractEnricher:
 
     def elsevier(self, papers, limit=80):
         if not (self.keys.get('scopus') and len(str(self.keys['scopus']).strip()) > 5):
+            n = sum(1 for p in papers if _needs_abstract(p) and norm_doi(p.get('doi')).startswith('10.1016/'))
+            if n:
+                self._note('Elsevier API', f"skipped: no SCOPUS_API_KEY ({n} Elsevier papers waiting)")
             return
         todo = self._index(papers, lambda p: _needs_abstract(p) or is_unknown_author(p.get('ieee_authors')))
         dois = [d for d in todo if d.startswith('10.1016/')][:limit]
@@ -304,10 +315,15 @@ class AbstractEnricher:
             m = re.search(r"linkinghub\.elsevier\.com/retrieve/pii/(\w+)", r.url)
             if m:
                 r = sess.get(f"https://www.sciencedirect.com/science/article/abs/pii/{m.group(1)}", timeout=12)
+            host = re.sub(r'^https?://([^/]+).*$', r'\1', r.url)
             if r.status_code != 200 or 'html' not in r.headers.get('Content-Type', ''):
+                self._note('Publisher page', f"{host}: HTTP {r.status_code}")
                 return None
-            return extract_abstract_from_html(r.text)
-        except Exception:
+            text = extract_abstract_from_html(r.text)
+            self._note('Publisher page', f"{host}: {'abstract found' if text else 'no abstract in page'}")
+            return text
+        except Exception as e:
+            self._note('Publisher page', f"error: {type(e).__name__}")
             return None
 
     def landing_pages(self, papers, limit=40):
@@ -350,6 +366,13 @@ class AbstractEnricher:
         detail = ', '.join(f"{k}: {v}" for k, v in self.stats.items()) or 'none'
         self.log(f"[Enrich] {after}/{len(papers)} papers have abstracts (+{after - before}; {detail})")
         self.log(f"[Enrich] Unknown authors: {unk_before} -> {unk_after}")
+        for step, outcomes in self.diag.items():
+            self.log(f"  · {step}: " + ', '.join(f"{k} ×{v}" for k, v in sorted(outcomes.items(), key=lambda x: -x[1])))
+        self.summary = {
+            'with_abstract_before': before, 'with_abstract_after': after, 'total': len(papers),
+            'unknown_authors_before': unk_before, 'unknown_authors_after': unk_after,
+            'filled_by': dict(self.stats), 'diagnostics': self.diag,
+        }
         return papers
 
 
