@@ -28,6 +28,23 @@ def format_epmc_authors(author_str):
         return f"{formatted[0]} and {formatted[1]}", sort_key
     return formatted[0] if formatted else "Unknown Author", sort_key
 
+def process_entry(entry):
+    """One Europe PMC result -> SROrch record dict (shared with systematic.py)."""
+    ieee_authors, sort_key = format_epmc_authors(entry.get('authorString'))
+
+    return {
+        'sort_name': sort_key,
+        'ieee_authors': ieee_authors,
+        'title': entry.get('title'),
+        'venue': entry.get('journalTitle', 'Europe PMC Indexed Journal'),
+        'year': entry.get('pubYear', 'n.d.'),
+        'citations': int(entry.get('citedByCount', 0)),
+        'doi': entry.get('doi', 'N/A'),
+        'url': f"https://europepmc.org/article/MED/{entry.get('id')}" if 'id' in entry else "",
+        'abstract': clean_abstract(entry.get('abstractText')),
+    }
+
+
 def fetch_and_process_europe_pmc(query, max_limit=20, save_csv=True):
     base_url = "https://www.ebi.ac.uk/europepmc/webservices/rest/search"
     params = {"query": query, "format": "json", "pageSize": max_limit, "resultType": "core"}
@@ -46,20 +63,8 @@ def fetch_and_process_europe_pmc(query, max_limit=20, save_csv=True):
             if entry_id in seen_ids: continue
             seen_ids.add(entry_id)
 
-            ieee_authors, sort_key = format_epmc_authors(entry.get('authorString'))
+            processed.append(process_entry(entry))
 
-            processed.append({
-                'sort_name': sort_key,
-                'ieee_authors': ieee_authors,
-                'title': entry.get('title'),
-                'venue': entry.get('journalTitle', 'Europe PMC Indexed Journal'),
-                'year': entry.get('pubYear', 'n.d.'),
-                'citations': int(entry.get('citedByCount', 0)),
-                'doi': entry.get('doi', 'N/A'),
-                'url': f"https://europepmc.org/article/MED/{entry.get('id')}" if 'id' in entry else "",
-                'abstract': clean_abstract(entry.get('abstractText')),
-            })
-            
         processed.sort(key=lambda x: x['sort_name'].lower())
 
         if save_csv and processed:

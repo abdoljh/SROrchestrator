@@ -34,6 +34,49 @@ def format_scopus_authors(author_str):
         return f"{formatted[0]} and {formatted[1]}", sort_key
     return formatted[0] if formatted else "Unknown Author", sort_key
 
+def _scopus_link(entry):
+    links = entry.get('link') or []
+    return links[2].get('@href', '') if len(links) > 2 else ''
+
+
+def process_entry(entry):
+    """One Scopus search entry -> SROrch record dict (shared with systematic.py)."""
+    # Extract Year
+    cover_date = entry.get('prism:coverDate', '')
+    year = cover_date.split('-')[0] if cover_date else 'n.d.'
+    
+    doi = entry.get('prism:doi', '')
+
+    # Format authors and get sort key
+    ieee_authors, sort_key = format_scopus_authors(entry.get('dc:creator'))
+
+    # Extract SJR (Scimago Journal Rank) if available
+    sjr = None
+    sjr_raw = entry.get('prism:sjr') or entry.get('sjr')
+    if sjr_raw:
+        try:
+            sjr = round(float(sjr_raw), 3)
+        except (ValueError, TypeError):
+            pass
+
+    # Extract source-id for potential journal lookup
+    source_id = entry.get('source-id', '')
+
+    return {
+        'sort_name': sort_key,
+        'ieee_authors': ieee_authors,
+        'title': entry.get('dc:title'),
+        'venue': entry.get('prism:publicationName', 'Scopus Indexed Journal'),
+        'year': year,
+        'citations': int(entry.get('citedby-count', 0)),
+        'doi': doi or 'N/A',
+        'url': _scopus_link(entry),
+        'impact_factor': sjr,  # SJR as impact factor proxy
+        'h_index': None,       # Not available in Scopus search results
+        'abstract': clean_abstract(entry.get('dc:description')),
+    }
+
+
 def fetch_and_process_scopus(api_key, query, max_limit=20, save_csv=True):
     """Searches Scopus via Elsevier's API."""
     api_key = os.getenv('SCOPUS_API_KEY')
@@ -78,46 +121,13 @@ def fetch_and_process_scopus(api_key, query, max_limit=20, save_csv=True):
             # Handle potential error entries
             if 'error' in entry: continue
 
-            # Extract Year
-            cover_date = entry.get('prism:coverDate', '')
-            year = cover_date.split('-')[0] if cover_date else 'n.d.'
-            
-            # Get DOI for deduplication
             doi = entry.get('prism:doi', '')
             if doi and doi in seen_dois:
                 continue
             if doi:
                 seen_dois.add(doi)
+            processed_data.append(process_entry(entry))
 
-            # Format authors and get sort key
-            ieee_authors, sort_key = format_scopus_authors(entry.get('dc:creator'))
-
-            # Extract SJR (Scimago Journal Rank) if available
-            sjr = None
-            sjr_raw = entry.get('prism:sjr') or entry.get('sjr')
-            if sjr_raw:
-                try:
-                    sjr = round(float(sjr_raw), 3)
-                except (ValueError, TypeError):
-                    pass
-
-            # Extract source-id for potential journal lookup
-            source_id = entry.get('source-id', '')
-
-            processed_data.append({
-                'sort_name': sort_key,
-                'ieee_authors': ieee_authors,
-                'title': entry.get('dc:title'),
-                'venue': entry.get('prism:publicationName', 'Scopus Indexed Journal'),
-                'year': year,
-                'citations': int(entry.get('citedby-count', 0)),
-                'doi': doi or 'N/A',
-                'url': entry.get('link', [{}])[2].get('@href', ''),
-                'impact_factor': sjr,  # SJR as impact factor proxy
-                'h_index': None,       # Not available in Scopus search results
-                'abstract': clean_abstract(entry.get('dc:description')),
-            })
-            
         # Sort by Author Name
         processed_data.sort(key=lambda x: x['sort_name'].lower())
 
