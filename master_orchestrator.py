@@ -43,6 +43,7 @@ from gap_utils import analyze_research_gaps
 # Query / abstract helpers
 from query_utils import safe_query_slug, clean_abstract, NO_ABSTRACT, wildcard_terms, expand_wildcards
 from enrichment import AbstractEnricher, is_unknown_author
+from query_log import engine_context
 
 load_dotenv()
 
@@ -435,7 +436,12 @@ class ResearchOrchestrator:
         except Exception as e:
             print(f"⚠️ Statistics generation failed: {e}")
 
-    def run_search(self, query, limit_per_engine=15):
+    def run_search(self, query, limit_per_engine=15, extra_results=None):
+        """Query every enabled engine in parallel, deduplicate, score and enrich.
+
+        extra_results: records fetched elsewhere (e.g. systematic.py's exhaustive
+        paging), each with 'found_in' set; they are deduplicated and enriched
+        together with this run's results."""
         self.session_metadata['start_time'] = datetime.now()
         self.session_metadata['query'] = query
 
@@ -462,6 +468,10 @@ class ResearchOrchestrator:
             retried = self.session_metadata.setdefault('wildcard_retries', [])
 
             def run_engine(name, fn, args, kwargs):
+                with engine_context(name):
+                    return _run_engine(name, fn, args, kwargs)
+
+            def _run_engine(name, fn, args, kwargs):
                 first_error = None
                 try:
                     res = fn(*args, **kwargs)
@@ -534,11 +544,19 @@ class ResearchOrchestrator:
                     if engine_name not in self.session_metadata['failed_engines']:
                         self.session_metadata['failed_engines'].append(f"{engine_name} (error: {str(e)[:160]})")
 
+        if extra_results:
+            for p in extra_results:
+                p['abstract'] = clean_abstract(p.get('abstract'))
+                if p['abstract']:
+                    p.setdefault('abstract_source', p.get('found_in', ''))
+            combined_results.extend(extra_results)
+
         final_list = self.deduplicate_and_score(combined_results)
 
         if self.config.get('enrich_abstracts', True):
             try:
-                self.enrich_missing_abstracts(final_list)
+                with engine_context('enrichment'):
+                    self.enrich_missing_abstracts(final_list)
             except Exception as e:
                 print(f"⚠️ Abstract enrichment failed: {e}")
 

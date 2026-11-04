@@ -25,6 +25,68 @@ def format_openalex_authors(authorships):
         return f"{formatted[0]} and {formatted[1]}"
     return formatted[0]
 
+def process_work(work):
+    """One OpenAlex work object -> SROrch record dict (shared with systematic.py)."""
+    # 1. Author Logic
+    authorships = work.get("authorships", [])
+    display_authors = format_openalex_authors(authorships)
+    
+    # Sort Key (Surname of first author)
+    first_author_full = authorships[0].get('author', {}).get('display_name', 'Unknown') if authorships else "Unknown"
+    sort_key = first_author_full.split()[-1] if ' ' in first_author_full else first_author_full
+
+    # 2. Venue (Source) and Impact Factor proxy
+    primary_loc = work.get("primary_location", {}) or {}
+    source = primary_loc.get("source", {}) or {}
+    venue = source.get("display_name", "Unknown Venue") if source else "Unknown Venue"
+
+    # Impact Factor proxy: OpenAlex 2-year mean citedness ≈ Journal Impact Factor
+    impact_factor = None
+    source_stats = source.get("summary_stats", {}) if source else {}
+    if source_stats:
+        raw_if = source_stats.get("2yr_mean_citedness")
+        if raw_if is not None:
+            try:
+                impact_factor = round(float(raw_if), 2)
+            except (ValueError, TypeError):
+                pass
+
+    # 3. First author h-index (from OpenAlex author summary stats)
+    h_index = None
+    if authorships:
+        first_author_obj = authorships[0].get('author', {}) or {}
+        author_stats = first_author_obj.get('summary_stats', {}) or {}
+        if author_stats:
+            raw_h = author_stats.get('h_index')
+            if raw_h is not None:
+                try:
+                    h_index = int(raw_h)
+                except (ValueError, TypeError):
+                    pass
+
+    # 4. DOI & URL
+    doi = work.get("doi", "N/A")
+    # OpenAlex DOIs are full URLs, we clean them for the DOI column
+    clean_doi = doi.replace("https://doi.org/", "") if doi else "N/A"
+
+    # Use OpenAlex web UI link or the DOI link
+    url = work.get("id", "")
+
+    return {
+        'sort_name': sort_key,
+        'ieee_authors': display_authors,
+        'title': work.get('title', 'Untitled Document'),
+        'venue': venue,
+        'year': work.get('publication_year', 'n.d.'),
+        'citations': work.get('cited_by_count', 0),
+        'doi': clean_doi,
+        'url': url,
+        'impact_factor': impact_factor,
+        'h_index': h_index,
+        'abstract': reconstruct_inverted_index(work.get('abstract_inverted_index')),
+    }
+
+
 def fetch_and_process_openalex(query, max_limit=20, save_csv=True, email="your@email.com"):
     """
     Searches OpenAlex for papers. No API key required, 
@@ -53,64 +115,7 @@ def fetch_and_process_openalex(query, max_limit=20, save_csv=True, email="your@e
     processed_data = []
     
     for work in results:
-        # 1. Author Logic
-        authorships = work.get("authorships", [])
-        display_authors = format_openalex_authors(authorships)
-        
-        # Sort Key (Surname of first author)
-        first_author_full = authorships[0].get('author', {}).get('display_name', 'Unknown') if authorships else "Unknown"
-        sort_key = first_author_full.split()[-1] if ' ' in first_author_full else first_author_full
-
-        # 2. Venue (Source) and Impact Factor proxy
-        primary_loc = work.get("primary_location", {}) or {}
-        source = primary_loc.get("source", {}) or {}
-        venue = source.get("display_name", "Unknown Venue") if source else "Unknown Venue"
-
-        # Impact Factor proxy: OpenAlex 2-year mean citedness ≈ Journal Impact Factor
-        impact_factor = None
-        source_stats = source.get("summary_stats", {}) if source else {}
-        if source_stats:
-            raw_if = source_stats.get("2yr_mean_citedness")
-            if raw_if is not None:
-                try:
-                    impact_factor = round(float(raw_if), 2)
-                except (ValueError, TypeError):
-                    pass
-
-        # 3. First author h-index (from OpenAlex author summary stats)
-        h_index = None
-        if authorships:
-            first_author_obj = authorships[0].get('author', {}) or {}
-            author_stats = first_author_obj.get('summary_stats', {}) or {}
-            if author_stats:
-                raw_h = author_stats.get('h_index')
-                if raw_h is not None:
-                    try:
-                        h_index = int(raw_h)
-                    except (ValueError, TypeError):
-                        pass
-
-        # 4. DOI & URL
-        doi = work.get("doi", "N/A")
-        # OpenAlex DOIs are full URLs, we clean them for the DOI column
-        clean_doi = doi.replace("https://doi.org/", "") if doi else "N/A"
-
-        # Use OpenAlex web UI link or the DOI link
-        url = work.get("id", "")
-
-        processed_data.append({
-            'sort_name': sort_key,
-            'ieee_authors': display_authors,
-            'title': work.get('title', 'Untitled Document'),
-            'venue': venue,
-            'year': work.get('publication_year', 'n.d.'),
-            'citations': work.get('cited_by_count', 0),
-            'doi': clean_doi,
-            'url': url,
-            'impact_factor': impact_factor,
-            'h_index': h_index,
-            'abstract': reconstruct_inverted_index(work.get('abstract_inverted_index')),
-        })
+        processed_data.append(process_work(work))
 
     # Sort alphabetically by surname
     processed_data.sort(key=lambda x: x['sort_name'].lower())

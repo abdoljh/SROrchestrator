@@ -164,6 +164,31 @@ results = orchestrator.run_search("quantum computing cryptography", limit_per_en
   ✓ Verification audit trail
 ```
 
+### 2b. Systematic-Review Search (exhaustive, logged)
+The normal mode takes the top N results per engine, which caps recall. For a review
+protocol's fixed Boolean strings, run the batch tool instead:
+
+```bash
+python srorch_batch.py --strings search_strings.yml --out runs/2026-11-05 --email you@uni.edu
+python srorch_batch.py --strings search_strings.yml --only S2,S5 --max-records 5000
+```
+
+- **Exhaustive engines** page to the last hit: OpenAlex (title + abstract), Europe PMC,
+  Semantic Scholar (bulk search), PubMed, and CORE and Scopus when their keys are set. If a
+  string has more hits than `--max-records`, the log marks it `TRUNCATED`.
+- **Capped engines** (Crossref and the Crossref-backed publisher engines, arXiv, DBLP, ...)
+  still run with `--capped-limit` results each and are logged as "not exhaustive". Several
+  of them only accept plain keywords, and the log shows that. Google Scholar is off by
+  default because each call costs a SerpApi credit.
+- **Outputs**: `<SID>_srorch_<date>.csv` (one header; `string_id`, a stable `record_id`, then
+  the MASTER_REPORT columns), `QUERY_LOG.csv` (per engine: date, database, string_id,
+  query_as_run, hits, notes, ...; the query is what the API actually received), and
+  `REQUESTS_LOG.csv` (every request, with keys and e-mail addresses redacted).
+- Strings file format: `strings: [{id: S1, q: '...'}, ...]`, with an optional
+  `window: {from_year: 2000}`.
+
+Tests: `python -m pytest -q tests` (offline; HTTP is faked).
+
 ### 3. Research Gap Identification
 ```python
 # Automatically detects:

@@ -24,6 +24,41 @@ def format_author_name(auth):
     parts = name.split()
     return f"{parts[0][0]}. {' '.join(parts[1:])}" if len(parts) > 1 else name
 
+def process_paper(paper):
+    """One Semantic Scholar paper -> SROrch record dict (shared with systematic.py)."""
+    authors = paper.get('authors', [])
+    if not authors:
+        display_authors, sort_key = "Unknown Author", "Unknown"
+    else:
+        first_auth = format_author_name(authors[0])
+        sort_key = authors[0].get('name', 'Unknown') 
+        if len(authors) >= 3:
+            display_authors = f"{first_auth} et al."
+        elif len(authors) == 2:
+            display_authors = f"{first_auth} and {format_author_name(authors[1])}"
+        else:
+            display_authors = first_auth
+
+    # Extract DOI from externalIds if available
+    external_ids = paper.get('externalIds', {}) or {}
+    doi = external_ids.get('DOI', '') or ''
+
+    return {
+        'sort_name': sort_key,
+        'ieee_authors': display_authors,
+        'title': paper.get('title', 'Untitled Document'),
+        'venue': abbreviate_venue(paper.get('venue')),
+        'year': paper.get('year', 'n.d.'),
+        'citations': paper.get('citationCount', 0),
+        'influential_citations': paper.get('influentialCitationCount', 0),
+        'doi': doi if doi else 'N/A',
+        'url': paper.get('url', ''),
+        'abstract': clean_abstract(paper.get('abstract')),
+        'impact_factor': None,  # S2 does not provide journal IF
+        'h_index': None,        # S2 bulk search does not include author h-index
+    }
+
+
 def fetch_and_process_papers(api_key, query, filters=None, save_csv=True, csv_limit=1000):
     http = Session()
     http.mount('https://', HTTPAdapter(max_retries=Retry(total=5, backoff_factor=1)))
@@ -51,37 +86,7 @@ def fetch_and_process_papers(api_key, query, filters=None, save_csv=True, csv_li
 
     processed_data = []
     for paper in raw_papers:
-        authors = paper.get('authors', [])
-        if not authors:
-            display_authors, sort_key = "Unknown Author", "Unknown"
-        else:
-            first_auth = format_author_name(authors[0])
-            sort_key = authors[0].get('name', 'Unknown') 
-            if len(authors) >= 3:
-                display_authors = f"{first_auth} et al."
-            elif len(authors) == 2:
-                display_authors = f"{first_auth} and {format_author_name(authors[1])}"
-            else:
-                display_authors = first_auth
-
-        # Extract DOI from externalIds if available
-        external_ids = paper.get('externalIds', {}) or {}
-        doi = external_ids.get('DOI', '') or ''
-
-        processed_data.append({
-            'sort_name': sort_key,
-            'ieee_authors': display_authors,
-            'title': paper.get('title', 'Untitled Document'),
-            'venue': abbreviate_venue(paper.get('venue')),
-            'year': paper.get('year', 'n.d.'),
-            'citations': paper.get('citationCount', 0),
-            'influential_citations': paper.get('influentialCitationCount', 0),
-            'doi': doi if doi else 'N/A',
-            'url': paper.get('url', ''),
-            'abstract': clean_abstract(paper.get('abstract')),
-            'impact_factor': None,  # S2 does not provide journal IF
-            'h_index': None,        # S2 bulk search does not include author h-index
-        })
+        processed_data.append(process_paper(paper))
 
     # Sorting alphabetically by author
     processed_data.sort(key=lambda x: x['sort_name'].lower())
