@@ -1046,6 +1046,17 @@ def render_api_key_input_section():
         else:
             st.info("ℹ️ Using free engines only")
 
+def apply_api_keys_to_env(api_keys):
+    """Expose the sidebar keys to the engine modules, which read environment variables."""
+    for key, value in api_keys.items():
+        if key != 'email' and value and len(value) > 5:
+            os.environ[f"{key.upper()}_API_KEY"] = value
+            if key == 'springer':  # springer_utils reads META_SPRINGER_API_KEY
+                os.environ['META_SPRINGER_API_KEY'] = value
+        elif key == 'email' and value:
+            os.environ['USER_EMAIL'] = value
+
+
 def check_api_keys(api_keys):
     """Check which API keys are configured and valid"""
     status = {}
@@ -2957,7 +2968,7 @@ def main():
         }
     
     # Main content area - 4 TABS
-    tab1, tab2, tab3, tab4 = st.tabs(["🔍 Search", "📊 Results", "📝 Reviewer", "ℹ️ About"])
+    tab1, tab2, tab_sys, tab3, tab4 = st.tabs(["🔍 Search", "📊 Results", "🧪 Systematic", "📝 Reviewer", "ℹ️ About"])
     
     # ====== TAB 1: SEARCH ======
     with tab1:
@@ -3010,13 +3021,7 @@ def main():
                     progress_bar.progress(10)
                     
                     # Set API keys in environment
-                    for key, value in api_keys.items():
-                        if key != 'email' and value and len(value) > 5:
-                            os.environ[f"{key.upper()}_API_KEY"] = value
-                            if key == 'springer':  # springer_utils reads META_SPRINGER_API_KEY
-                                os.environ['META_SPRINGER_API_KEY'] = value
-                        elif key == 'email' and value:
-                            os.environ['USER_EMAIL'] = value
+                    apply_api_keys_to_env(api_keys)
                     
                     # Initialize orchestrator
                     orchestrator = ResearchOrchestrator(config=config)
@@ -3427,6 +3432,11 @@ def main():
         else:
             st.info("👈 No results yet. Start a search in the 'Search' tab!")
     
+    # ====== SYSTEMATIC REVIEW SEARCH ======
+    with tab_sys:
+        from systematic_tab import render_systematic_tab
+        render_systematic_tab(api_keys, apply_api_keys_to_env)
+
     # ====== TAB 3: REVIEWER ======
     with tab3:
         st.header("📝 Academic Reviewer (Strict Mode)")

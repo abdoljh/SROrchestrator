@@ -26,6 +26,7 @@ import os
 import re
 import shutil
 import time
+import zipfile
 from datetime import date
 
 import requests
@@ -376,5 +377,82 @@ def move_session_dir(orchestrator, out_dir, string_id):
     return ""
 
 
-__all__ = ["run_string", "export_string", "write_csv", "record_id", "PAGERS", "ALL_ENGINES",
+REQUEST_LOG_KEYS = ["time", "string_id", "engine", "method", "status", "query_sent", "url"]
+
+
+def load_strings_text(text):
+    """Parse a strings YAML document (``strings: [{id, q}]``, optional ``window: {from_year}``).
+    Returns (list of (id, query), from_year or None)."""
+    import yaml
+    cfg = yaml.safe_load(text) or {}
+    if not isinstance(cfg, dict) or not isinstance(cfg.get("strings"), list):
+        raise ValueError("expected a YAML mapping with a 'strings:' list of {id, q} items")
+    strings = []
+    for s in cfg["strings"]:
+        if not isinstance(s, dict) or not s.get("id") or not s.get("q"):
+            raise ValueError("every item under 'strings:' needs an 'id' and a 'q'")
+        strings.append((str(s["id"]), str(s["q"])))
+    from_year = (cfg.get("window") or {}).get("from_year")
+    return strings, (int(from_year) if from_year else None)
+
+
+def run_batch(strings, out_dir, exhaustive=EXHAUSTIVE_ENGINES, capped=DEFAULT_CAPPED, max_records=2000,
+              capped_limit=25, from_year=None, email="", enrich=True, config=None, keep_raw=True,
+              on_string_start=None, on_string_done=None):
+    """Run several (id, query) strings into out_dir: <SID>_srorch_<date>.csv per string plus
+    QUERY_LOG.csv and REQUESTS_LOG.csv, rewritten after every string so an interrupted batch keeps
+    what it has. Shared by srorch_batch.py and the Streamlit 'Systematic' tab.
+    Returns (query_log_rows, {string_id: export_path})."""
+    from master_orchestrator import ResearchOrchestrator
+    overlap = set(exhaustive) & set(capped)
+    if overlap:
+        raise ValueError("an engine cannot be both exhaustive and capped: %s" % sorted(overlap))
+    if email:
+        os.environ["USER_EMAIL"] = email  # PubMed and the enrichment chain read it
+    os.makedirs(out_dir, exist_ok=True)
+    all_rows, all_requests, paths = [], [], {}
+    for n, (sid, q) in enumerate(strings):
+        if on_string_start:
+            on_string_start(n, sid, q)
+        orch = ResearchOrchestrator(config=dict(config) if config else None)
+        orch.config["enrich_abstracts"] = bool(enrich)
+        orch.config["enable_visualization"] = False
+        if email:
+            orch.api_keys["email"] = email
+        records, rows, reqs = run_string(orch, sid, q, exhaustive=exhaustive, capped=capped,
+                                         max_records=max_records, capped_limit=capped_limit,
+                                         from_year=from_year, mailto=email)
+        paths[sid] = export_string(out_dir, sid, records)
+        if keep_raw:
+            move_session_dir(orch, out_dir, sid)
+        elif getattr(orch, "output_dir", "") and os.path.isdir(orch.output_dir):
+            shutil.rmtree(orch.output_dir, ignore_errors=True)
+        for r in reqs:
+            r["string_id"] = sid
+        all_rows += rows
+        all_requests += reqs
+        write_csv(os.path.join(out_dir, "QUERY_LOG.csv"), all_rows, QUERY_LOG_KEYS)
+        write_csv(os.path.join(out_dir, "REQUESTS_LOG.csv"), all_requests, REQUEST_LOG_KEYS)
+        if on_string_done:
+            on_string_done(sid, q, records, rows, paths[sid])
+    return all_rows, paths
+
+
+def zip_run(out_dir, include_raw=False):
+    """The run folder as zip bytes (top folder = the run's name). raw_<SID>/ only if asked."""
+    import io
+    buf = io.BytesIO()
+    base = os.path.basename(os.path.normpath(out_dir))
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for folder, _, files in os.walk(out_dir):
+            rel = os.path.relpath(folder, out_dir)
+            if not include_raw and rel.split(os.sep)[0].startswith("raw_"):
+                continue
+            for f in sorted(files):
+                full = os.path.join(folder, f)
+                z.write(full, os.path.join(base, os.path.relpath(full, out_dir)))
+    return buf.getvalue()
+
+
+__all__ = ["run_string", "run_batch", "zip_run", "load_strings_text", "export_string", "write_csv", "record_id", "PAGERS", "ALL_ENGINES",
            "EXHAUSTIVE_ENGINES", "DEFAULT_CAPPED", "EXPORT_KEYS", "QUERY_LOG_KEYS", "redact_url"]
