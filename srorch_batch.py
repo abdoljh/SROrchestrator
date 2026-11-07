@@ -28,12 +28,8 @@ import systematic as sm
 
 
 def load_strings(path):
-    import yaml
     with open(path, encoding="utf-8") as fh:
-        cfg = yaml.safe_load(fh)
-    strings = [(str(s["id"]), str(s["q"])) for s in cfg.get("strings", [])]
-    from_year = (cfg.get("window") or {}).get("from_year")
-    return strings, (int(from_year) if from_year else None)
+        return sm.load_strings_text(fh.read())
 
 
 def parse_engines(text, default):
@@ -79,36 +75,17 @@ def main(argv=None):
         sys.exit("an engine cannot be both exhaustive and capped: %s" % sorted(overlap))
     if not strings:
         sys.exit("no search strings selected")
-    if a.email:
-        os.environ["USER_EMAIL"] = a.email  # PubMed reads it; the orchestrator's enrichment too
 
-    from master_orchestrator import ResearchOrchestrator
-    os.makedirs(a.out, exist_ok=True)
-    all_rows, all_requests = [], []
-    for sid, q in strings:
+    def report(sid, q, records, rows, path):
         print("\n=== %s: %s" % (sid, q))
-        orch = ResearchOrchestrator()
-        orch.config["enrich_abstracts"] = not a.no_enrich
-        orch.config["enable_visualization"] = False
-        if a.email:
-            orch.api_keys["email"] = a.email
-        records, rows, reqs = sm.run_string(orch, sid, q, exhaustive=exhaustive, capped=capped,
-                                            max_records=a.max_records, capped_limit=a.capped_limit,
-                                            from_year=from_year, mailto=a.email)
-        path = sm.export_string(a.out, sid, records)
-        sm.move_session_dir(orch, a.out, sid)
-        for r in reqs:
-            r["string_id"] = sid
-        all_rows += rows
-        all_requests += reqs
         for r in rows:
             print("  %-22s %-10s hits=%-6s retrieved=%-5s %s" % (r["database"], r["mode"], r["hits"],
                                                                r["records_retrieved"], r["notes"][:70]))
         print("  -> %s (%d records)" % (path, len(records)))
-        # rewrite the logs after every string, so an interrupted batch keeps what it has
-        sm.write_csv(os.path.join(a.out, "QUERY_LOG.csv"), all_rows, sm.QUERY_LOG_KEYS)
-        sm.write_csv(os.path.join(a.out, "REQUESTS_LOG.csv"), all_requests,
-                     ["time", "string_id", "engine", "method", "status", "query_sent", "url"])
+
+    sm.run_batch(strings, a.out, exhaustive=exhaustive, capped=capped, max_records=a.max_records,
+                 capped_limit=a.capped_limit, from_year=from_year, email=a.email,
+                 enrich=not a.no_enrich, on_string_done=report)
     print("\nlogs: %s" % os.path.join(a.out, "QUERY_LOG.csv"))
 
 

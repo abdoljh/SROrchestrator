@@ -166,7 +166,8 @@ results = orchestrator.run_search("quantum computing cryptography", limit_per_en
 
 ### 2b. Systematic-Review Search (exhaustive, logged)
 The normal mode takes the top N results per engine, which caps recall. For a review
-protocol's fixed Boolean strings, run the batch tool instead:
+protocol's fixed Boolean strings, use the **🧪 Systematic** tab in the app (paste or upload the
+strings YAML, run, download the run as a zip), or the batch tool:
 
 ```bash
 python srorch_batch.py --strings search_strings.yml --out runs/2026-11-05 --email you@uni.edu
