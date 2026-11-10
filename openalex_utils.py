@@ -1,3 +1,4 @@
+import os
 import time
 import csv
 import re
@@ -87,6 +88,13 @@ def process_work(work):
     }
 
 
+def auth_headers(key=""):
+    """Authorization header for the free OpenAlex API key (argument, else OPENALEX_API_KEY).
+    Sent as a header, not as ?api_key=, so the key never appears in a URL, log or error text."""
+    key = (key or os.getenv("OPENALEX_API_KEY") or "").strip()
+    return {"Authorization": "Bearer " + key} if key else None
+
+
 def fetch_and_process_openalex(query, max_limit=20, save_csv=True, email="your@email.com"):
     """
     Searches OpenAlex for papers. No API key required, 
@@ -104,7 +112,7 @@ def fetch_and_process_openalex(query, max_limit=20, save_csv=True, email="your@e
     }
 
     try:
-        response = requests.get(base_url, params=params, timeout=15)
+        response = requests.get(base_url, params=params, headers=auth_headers(), timeout=15)
         response.raise_for_status()
         data = response.json()
         results = data.get("results", [])

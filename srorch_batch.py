@@ -17,7 +17,9 @@ Outputs in --out:
 
 Google Scholar is off by default (each call costs a SerpApi credit); add it with
 --capped "Google Scholar,...". The OpenAlex/PubMed contact e-mail comes from --email or
-the USER_EMAIL environment variable and is never written to the outputs.
+the USER_EMAIL environment variable and is never written to the outputs. OpenAlex needs a
+free API key (OPENALEX_API_KEY environment variable; https://openalex.org/settings/api) to
+page past the first 200 results; it is sent as a header and never logged.
 """
 import argparse
 import os

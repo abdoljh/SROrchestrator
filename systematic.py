@@ -64,8 +64,9 @@ S2_FIELDS = ("paperId,title,year,authors,venue,url,citationCount,influentialCita
 
 
 class EngineResult(object):
-    def __init__(self, records, total="", query="", note=""):
+    def __init__(self, records, total="", query="", note="", error=""):
         self.records, self.total, self.query, self.note = records, total, query, note
+        self.error = error  # paging stopped early: the records so far are kept and it is logged
 
 
 # ---------------------------------------------------------------- helpers
@@ -84,6 +85,11 @@ def http_get(url, params=None, headers=None, tries=4, pause=1.0, timeout=60):
             continue
         return r
     return r
+
+
+def _scrub(text):
+    """Error text for the query log: no key or e-mail values (exceptions can quote the URL)."""
+    return re.sub(r"(?i)\b(api_key|apikey|key|mailto|email|access_token)=[^&\s'\")]+", r"\1=<redacted>", str(text))
 
 
 def _fail(engine, r):
@@ -123,7 +129,11 @@ def _year(rec):
 
 
 # ---------------------------------------------------------------- exhaustive engines
-def page_openalex(query, max_records, from_year=None, mailto="", **_):
+def page_openalex(query, max_records, from_year=None, mailto="", openalex_key="", **_):
+    """Cursor-page OpenAlex to the last hit. Paging past page 1 needs the free API key
+    (openalex_key, else OPENALEX_API_KEY). If a later page fails, the pages already fetched
+    are returned with EngineResult.error set, so the run logs a truncation, not a loss."""
+    headers = openalex_utils.auth_headers(openalex_key)
     q = expand_wildcards(query) if wildcard_terms(query) else query  # OpenAlex has no truncation
     params = {"per_page": 200, "cursor": "*", "select": OPENALEX_SELECT}
     filters = []
@@ -141,12 +151,23 @@ def page_openalex(query, max_records, from_year=None, mailto="", **_):
         params["mailto"] = mailto
     if q != query:
         note += "; wildcards expanded"
-    out, total = [], ""
+    out, total, error = [], "", ""
     while len(out) < max_records:
-        r = http_get("https://api.openalex.org/works", params=params)
-        if r.status_code != 200:
-            _fail("OpenAlex", r)
-        data = r.json()
+        try:
+            r = http_get("https://api.openalex.org/works", params=params, headers=headers)
+            if r.status_code in (401, 403) and headers:
+                headers, note = None, note + "; key rejected, no key used"
+                r = http_get("https://api.openalex.org/works", params=params)
+            if r.status_code != 200:
+                _fail("OpenAlex", r)
+            data = r.json()
+        except Exception as e:
+            if not out:
+                raise
+            error = _scrub(e)[:200]
+            if not headers:
+                error += " (no working OPENALEX_API_KEY: paging past page 1 needs the free key)"
+            break
         total = (data.get("meta") or {}).get("count", total)
         batch = data.get("results") or []
         out += [openalex_utils.process_work(w) for w in batch]
@@ -155,7 +176,7 @@ def page_openalex(query, max_records, from_year=None, mailto="", **_):
             break
         params["cursor"] = cursor
         time.sleep(0.1)
-    return EngineResult(out[:max_records], total, q, note)
+    return EngineResult(out[:max_records], total, q, note, error)
 
 
 def page_europe_pmc(query, max_records, from_year=None, **_):
@@ -295,10 +316,11 @@ def run_string(orchestrator, string_id, query, exhaustive=EXHAUSTIVE_ENGINES, ca
             try:
                 with engine_context(name):
                     res = PAGERS[name](query, max_records, from_year=from_year, mailto=mailto,
-                                       s2_key=keys.get("s2") or "", core_key=keys.get("core") or "")
+                                       s2_key=keys.get("s2") or "", core_key=keys.get("core") or "",
+                                       openalex_key=keys.get("openalex") or "")
             except Exception as e:
                 row.update({"query_as_run": query, "hits": "", "records_retrieved": 0,
-                            "notes": "failed: %s" % str(e)[:200]})
+                            "notes": "failed: %s" % _scrub(e)[:200]})
                 rows.append(row)
                 continue
             for p in res.records:
@@ -306,7 +328,9 @@ def run_string(orchestrator, string_id, query, exhaustive=EXHAUSTIVE_ENGINES, ca
             extra += res.records
             n, total = len(res.records), res.total
             note = res.note
-            if total != "" and n < int(total):
+            if getattr(res, "error", ""):
+                note += "; TRUNCATED: paging stopped after %d of %s records: %s" % (n, total or "?", res.error)
+            elif total != "" and n < int(total):
                 note += "; TRUNCATED: retrieved %d of %s (raise max_records)" % (n, total)
             row.update({"query_as_run": res.query, "hits": total, "records_retrieved": n, "notes": note})
             rows.append(row)

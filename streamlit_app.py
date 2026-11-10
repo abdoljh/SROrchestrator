@@ -836,6 +836,8 @@ def initialize_session_state():
         st.session_state['user_core_key'] = ''
     if 'user_scopus_key' not in st.session_state:
         st.session_state['user_scopus_key'] = ''
+    if 'user_openalex_key' not in st.session_state:
+        st.session_state['user_openalex_key'] = ''
     if 'user_springer_key' not in st.session_state:
         st.session_state['user_springer_key'] = ''
     if 'user_email' not in st.session_state:
@@ -901,6 +903,7 @@ def load_api_keys():
         'serp': st.session_state.get('user_serp_key', '').strip() or get_secret_or_empty('SERP_API_KEY'),
         'core': st.session_state.get('user_core_key', '').strip() or get_secret_or_empty('CORE_API_KEY'),
         'scopus': st.session_state.get('user_scopus_key', '').strip() or get_secret_or_empty('SCOPUS_API_KEY'),
+        'openalex': st.session_state.get('user_openalex_key', '').strip() or get_secret_or_empty('OPENALEX_API_KEY'),
         'springer': st.session_state.get('user_springer_key', '').strip() or get_secret_or_empty('META_SPRINGER_API_KEY'),
         'email': st.session_state.get('user_email', 'researcher@example.com').strip() or get_secret_or_empty('USER_EMAIL') or 'researcher@example.com',
     }
@@ -985,6 +988,16 @@ def render_api_key_input_section():
             placeholder="Enter your SCOPUS API key"
         )
         
+        openalex_key = st.text_input(
+            "OpenAlex API Key",
+            value="",
+            type="password",
+            help="Free, at https://openalex.org/settings/api. Needed by the Systematic tab to page past "
+                 "the first 200 OpenAlex results.",
+            key="openalex_input_widget",
+            placeholder="Enter your OpenAlex API key"
+        )
+
         springer_key = st.text_input(
             "Springer Nature API Key",
             value="",
@@ -1008,6 +1021,7 @@ def render_api_key_input_section():
             st.session_state['user_serp_key'] = serp_key.strip()
             st.session_state['user_core_key'] = core_key.strip()
             st.session_state['user_scopus_key'] = scopus_key.strip()
+            st.session_state['user_openalex_key'] = openalex_key.strip()
             st.session_state['user_springer_key'] = springer_key.strip()
             st.session_state['user_email'] = email.strip()
             

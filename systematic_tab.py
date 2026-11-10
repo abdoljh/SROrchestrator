@@ -32,7 +32,8 @@ def render_systematic_tab(api_keys, apply_keys_to_env):
     st.header("Systematic Review Search")
     st.markdown(
         "Runs a review protocol's fixed Boolean strings. **Exhaustive** engines are paged to the last hit "
-        "(OpenAlex title+abstract, Europe PMC, Semantic Scholar, PubMed; CORE and Scopus need keys). "
+        "(OpenAlex title+abstract, Europe PMC, Semantic Scholar, PubMed; CORE and Scopus need keys; OpenAlex "
+        "needs its free key, `OPENALEX_API_KEY` or the sidebar field, for more than 200 results). "
         "**Capped** engines add a relevance-ranked top N and are logged as not exhaustive. "
         "Every request is logged with the query the API actually received.")
 
@@ -109,7 +110,8 @@ def render_systematic_tab(api_keys, apply_keys_to_env):
         trunc = log["notes"].astype(str).str.contains("TRUNCATED")
         failed = log["notes"].astype(str).str.contains("failed")
         if trunc.any():
-            st.warning("Truncated: %s. Raise the max records and re-run those strings."
+            st.warning("Truncated: %s. See the notes: raise the max records, or fix the paging error "
+                       "(e.g. a missing OpenAlex key), and re-run those strings."
                        % ", ".join("%s/%s" % (r.string_id, r.database) for r in log[trunc].itertuples()))
         if failed.any():
             st.info("Failed engines: %s" % ", ".join("%s/%s" % (r.string_id, r.database)

@@ -84,6 +84,7 @@ ANTHROPIC_API_KEY = "sk-ant-..."
 S2_API_KEY = "your_semantic_scholar_key"  # Highly recommended (free!)
 SERP_API_KEY = "your_serp_api_key"        # Google Scholar access
 CORE_API_KEY = "your_core_api_key"
+OPENALEX_API_KEY = "your_openalex_key"    # free; the Systematic tab needs it to page past 200 results
 SCOPUS_API_KEY = "your_scopus_api_key"
 META_SPRINGER_API_KEY = "your_springer_key"
 

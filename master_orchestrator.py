@@ -54,6 +54,7 @@ class ResearchOrchestrator:
             's2': os.getenv('S2_API_KEY'),
             'serp': os.getenv('SERP_API_KEY'),
             'core': os.getenv('CORE_API_KEY'),
+            'openalex': os.getenv('OPENALEX_API_KEY'),
             'scopus': os.getenv('SCOPUS_API_KEY'),
             'scopus_inst': os.getenv('SCOPUS_INST_TOKEN'),
             'springer': os.getenv('META_SPRINGER_API_KEY'),
