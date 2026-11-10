@@ -22,6 +22,7 @@ from typing import Callable, Dict, Iterable, List, Optional
 
 import requests
 
+from openalex_utils import auth_headers as openalex_auth_headers
 from query_utils import clean_abstract, reconstruct_inverted_index
 
 UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -167,7 +168,7 @@ class AbstractEnricher:
             r = _get("https://api.openalex.org/works", params={
                 'filter': 'doi:' + '|'.join(chunk), 'per-page': batch,
                 'select': 'doi,abstract_inverted_index,authorships,primary_location,publication_year',
-                'mailto': self.keys.get('email') or ''})
+                'mailto': self.keys.get('email') or ''}, headers=openalex_auth_headers())
             if r.status_code != 200:
                 self.log(f"  ⚠️ OpenAlex lookup returned {r.status_code}")
                 continue

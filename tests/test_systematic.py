@@ -93,6 +93,72 @@ def test_openalex_truncation_is_bounded(fake_http):
     assert len(res.records) == 3 and res.total == 9
 
 
+def keyed_openalex_route(total=5, page_size=2, good_key="GOODKEY1"):
+    """Like the live API since 2026-11: page 1 is open, later cursors need a valid key."""
+    inner = openalex_route(total, page_size)
+
+    def handler(r):
+        auth = r.headers.get("Authorization", "")
+        if auth and auth != "Bearer " + good_key:
+            return 403, {"error": "key_not_activated"}
+        if qs(r).get("cursor", "*") != "*" and not auth:
+            return 401, {"error": "API key required for cursor paging"}
+        return inner(r)
+    return handler
+
+
+def test_openalex_sends_key_as_header_and_pages(fake_http, monkeypatch):
+    monkeypatch.setenv("OPENALEX_API_KEY", "GOODKEY1")
+    fake_http.route("api.openalex.org", keyed_openalex_route())
+    with query_log.RequestRecorder() as rec:
+        res = sm.page_openalex("sludge", 100, mailto="me@x.org")
+    assert len(res.records) == 5 and res.error == ""
+    assert all(c.headers["Authorization"] == "Bearer GOODKEY1" for c in fake_http.calls)
+    assert not any("GOODKEY1" in c.url for c in fake_http.calls)   # never in a URL
+    assert "GOODKEY1" not in str(rec.rows) and "me%40x.org" not in str(rec.rows)
+    assert "api_key" in query_log.REDACT
+
+
+def test_openalex_without_key_keeps_first_page(fake_http, monkeypatch):
+    monkeypatch.delenv("OPENALEX_API_KEY", raising=False)
+    fake_http.route("api.openalex.org", keyed_openalex_route())
+    res = sm.page_openalex("sludge", 100)
+    assert len(res.records) == 2 and res.total == 5
+    assert "HTTP 401" in res.error and "OPENALEX_API_KEY" in res.error
+
+
+def test_openalex_rejected_key_falls_back_and_keeps_first_page(fake_http, monkeypatch):
+    monkeypatch.delenv("OPENALEX_API_KEY", raising=False)
+    fake_http.route("api.openalex.org", keyed_openalex_route())
+    res = sm.page_openalex("sludge", 100, openalex_key="BADKEY99")
+    assert len(res.records) == 2 and "key rejected" in res.note and res.error
+
+
+def test_openalex_first_page_failure_still_raises(fake_http):
+    fake_http.route("api.openalex.org", lambda r: (500, {"error": "down"}))
+    try:
+        sm.page_openalex("sludge", 100)
+    except RuntimeError as e:
+        assert "OpenAlex HTTP 500" in str(e)
+    else:
+        raise AssertionError("expected a failure")
+
+
+def test_paging_failure_is_logged_truncated_with_records(fake_http, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("OPENALEX_API_KEY", raising=False)
+    fake_http.route("api.openalex.org", keyed_openalex_route())
+    recs, rows, _ = sm.run_string(_orchestrator(), "S4", "x", exhaustive=("OpenAlex",), capped=())
+    assert len(recs) == 2 and rows[0]["records_retrieved"] == 2 and rows[0]["hits"] == 5
+    assert "TRUNCATED: paging stopped after 2 of 5 records: OpenAlex HTTP 401" in rows[0]["notes"]
+    assert not rows[0]["notes"].startswith("failed")
+
+
+def test_error_text_is_scrubbed():
+    msg = sm._scrub("Max retries: /works?mailto=me%40x.org&api_key=SECRET&per_page=200 (timeout)")
+    assert "SECRET" not in msg and "me%40x.org" not in msg and "per_page=200" in msg
+
+
 def test_europe_pmc_cursor_and_hyphenated_wildcards(fake_http):
     pages = {"*": ("A", [{"id": "1", "doi": "10.1/a", "title": "t1", "authorString": "Lee A"}]),
              "A": ("A", [{"id": "2", "doi": "10.1/b", "title": "t2"}])}
