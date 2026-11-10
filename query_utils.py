@@ -207,16 +207,35 @@ def expand_stem(stem: str, max_words: int = 6) -> List[str]:
     return out
 
 
+_PHRASE_WILDCARD_RE = re.compile(r'^"(.*?)([A-Za-z][\w-]*)\*"$')
+
+
 def expand_wildcards(query: str, max_words: int = 6) -> str:
     """
     Replace every ``stem*`` with ``(word1 OR word2 ...)``. Used to retry
     engines that returned nothing because they ignore truncation
     (OpenAlex, Google Scholar, Europe PMC with hyphenated stems, ...).
+
+    A truncated last word inside a quoted phrase expands to an OR of whole
+    phrases: ``"heavy metal*"`` -> ``("heavy metal" OR "heavy metals" ...)``.
+    Expanding it in place would leave an OR group inside the quotes, which
+    engines read as one literal phrase that matches nothing.
     """
     def repl(m):
         words = expand_stem(m.group(1), max_words)
         return "(" + " OR ".join(f'"{w}"' if "-" in w else w for w in words) + ")" if len(words) > 1 else words[0]
-    return _WILDCARD_RE.sub(repl, query or "")
+
+    out = []
+    for part in re.split(r'("[^"]*")', query or ""):
+        if part.startswith('"'):
+            m = _PHRASE_WILDCARD_RE.match(part)
+            if m:
+                phrases = [f'"{m.group(1)}{w}"' for w in expand_stem(m.group(2), max_words)]
+                part = "(" + " OR ".join(phrases) + ")" if len(phrases) > 1 else phrases[0]
+            out.append(part)
+        else:
+            out.append(_WILDCARD_RE.sub(repl, part))
+    return "".join(out)
 
 
 def to_springer_query(query: str) -> str:

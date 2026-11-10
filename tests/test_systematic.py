@@ -159,6 +159,18 @@ def test_error_text_is_scrubbed():
     assert "SECRET" not in msg and "me%40x.org" not in msg and "per_page=200" in msg
 
 
+def test_wildcard_inside_a_phrase_expands_to_whole_phrases(fake_http, monkeypatch):
+    # S5 of the 2026-11-08 run sent "heavy (metal OR metals ...)" to OpenAlex and got 0 hits
+    import query_utils
+    monkeypatch.setattr(query_utils, "_EXPANSION_CACHE", {})
+    monkeypatch.setattr(query_utils, "_lookup_words", lambda stem, n: ["metal", "metals"])
+    q = sm.expand_wildcards('("heavy metal*" OR nickel) AND "spent catalyst" AND metal*')
+    assert q == '(("heavy metal" OR "heavy metals") OR nickel) AND "spent catalyst" AND (metal OR metals)'
+    fake_http.route("api.openalex.org", openalex_route(total=1))
+    sm.page_openalex('"heavy metal*" AND pyrolysis', 10)
+    assert '"heavy metal" OR "heavy metals"' in qs(fake_http.calls[-1])["filter"]
+
+
 def test_europe_pmc_cursor_and_hyphenated_wildcards(fake_http):
     pages = {"*": ("A", [{"id": "1", "doi": "10.1/a", "title": "t1", "authorString": "Lee A"}]),
              "A": ("A", [{"id": "2", "doi": "10.1/b", "title": "t2"}])}
